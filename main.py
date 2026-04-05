@@ -1,9 +1,10 @@
+from app.core.db import init_db
 from app.core.logger import logger
-from app.core.logger import AEST
 
 
 def main() -> None:
     logger.info("System startup — monagent is initializing")
+    init_db()
 
 
 if __name__ == "__main__":

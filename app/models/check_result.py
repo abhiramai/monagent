@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlmodel import Field as SQLField
+from sqlmodel import SQLModel
 
 
 class CheckResult(BaseModel):
@@ -17,12 +19,16 @@ class CheckResult(BaseModel):
     error_message: Optional[str] = None
 
 
-class ServiceConfig(BaseModel):
-    """Configuration for a single probe instance."""
+class ServiceConfig(SQLModel, table=True):
+    """
+    Persistent configuration for a single probe instance.
+    Stored in SQLite and loaded by the engine at startup.
+    """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    __tablename__ = "service_config"
 
-    name: str
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    name: str = SQLField(index=True, unique=True)
     target_url: str
-    interval_seconds: int = Field(ge=1)
-    timeout_seconds: int = Field(default=10, ge=1)
+    interval_seconds: int = SQLField(ge=1)
+    timeout_seconds: int = SQLField(default=10, ge=1)

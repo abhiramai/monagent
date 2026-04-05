@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 
 from app.core.engine import ProbeEngine
@@ -8,12 +9,12 @@ from app.probes.base import BaseProbe
 
 
 class MockSuccessProbe(BaseProbe):
-    async def perform_check(self) -> tuple[bool, int | None]:
+    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, int | None]:
         return True, 200
 
 
 class MockFailProbe(BaseProbe):
-    async def perform_check(self) -> tuple[bool, int | None]:
+    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, int | None]:
         return False, 500
 
 

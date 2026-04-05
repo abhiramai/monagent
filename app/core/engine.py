@@ -1,6 +1,7 @@
 import asyncio
-from typing import Sequence
+from typing import Optional, Sequence
 
+import httpx
 from loguru import logger
 
 from app.models.check_result import CheckResult
@@ -9,21 +10,23 @@ from app.probes.base import BaseProbe
 
 class ProbeEngine:
     """
-    The async orchest layer. Runs each probe on its own heartbeat loop
-    concurrently, ensuring no single probe blocks another.
+    The async orchestration layer. Runs each probe on its own heartbeat loop
+    concurrently, using a single shared httpx.AsyncClient for connection pooling.
     """
 
     def __init__(self, probes: Sequence[BaseProbe]) -> None:
         self._probes = probes
         self._tasks: list[asyncio.Task[None]] = []
+        self._client: Optional[httpx.AsyncClient] = None
 
     async def start(self) -> None:
         """
-        Spawn a background task for every probe and run them all concurrently.
-        The engine will run until cancelled.
+        Initialize the master httpx client, spawn a background task for
+        every probe, and run them all concurrently until cancelled.
         """
         logger.info(f"ProbeEngine starting with {len(self._probes)} probe(s)")
 
+        self._client = httpx.AsyncClient()
         self._tasks = [
             asyncio.create_task(self._run_probe(probe), name=probe.config.name)
             for probe in self._probes
@@ -32,17 +35,21 @@ class ProbeEngine:
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
     async def stop(self) -> None:
-        """Cancel all running probe tasks gracefully."""
+        """Cancel all running probe tasks and close the master client."""
         logger.info("ProbeEngine shutting down")
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def _run_probe(self, probe: BaseProbe) -> None:
         """
         Independent heartbeat loop for a single probe.
         Crashes are caught and logged so other probes continue running.
         """
+        assert self._client is not None
         logger.info(
             f"Scheduling probe '{probe.config.name}' "
             f"every {probe.config.interval_seconds}s"
@@ -50,7 +57,7 @@ class ProbeEngine:
 
         while True:
             try:
-                result = await probe.run()
+                result = await probe.run(client=self._client)
                 self._log_result(result)
             except asyncio.CancelledError:
                 logger.info(f"Probe '{probe.config.name}' cancelled")

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import time
 from typing import Optional
 
+import httpx
 from loguru import logger
 
 from app.models.check_result import CheckResult, ServiceConfig
@@ -17,14 +18,17 @@ class BaseProbe(ABC):
         self.config = config
 
     @abstractmethod
-    async def perform_check(self) -> tuple[bool, Optional[int]]:
+    async def perform_check(
+        self, client: httpx.AsyncClient
+    ) -> tuple[bool, Optional[int]]:
         """
         The specific logic for each probe.
+        Receives a shared httpx.AsyncClient from the engine for connection pooling.
         Returns: (is_healthy, status_code)
         """
         ...
 
-    async def run(self) -> CheckResult:
+    async def run(self, client: Optional[httpx.AsyncClient] = None) -> CheckResult:
         """
         The ODD wrapper. This ensures EVERY probe is timed and logged
         without the developer having to do it manually.
@@ -36,7 +40,12 @@ class BaseProbe(ABC):
         status_code: Optional[int] = None
 
         try:
-            is_healthy, status_code = await self.perform_check()
+            if client is None:
+                client = httpx.AsyncClient(timeout=self.config.timeout_seconds)
+                is_healthy, status_code = await self.perform_check(client)
+                await client.aclose()
+            else:
+                is_healthy, status_code = await self.perform_check(client)
         except Exception as e:
             logger.exception(f"Unhandled exception in {self.config.name} probe")
             is_healthy = False

@@ -10,6 +10,11 @@ DB_URL = f"sqlite:///{DB_PATH}"
 _engine = create_engine(DB_URL, echo=False)
 
 
+def get_engine() -> object:
+    """Return the shared SQLAlchemy engine."""
+    return _engine
+
+
 def get_session() -> Generator[Session, None, None]:
     """
     Context-managed session generator.

@@ -1,20 +1,21 @@
+import httpx
 import pytest
 from app.models.check_result import CheckResult, ServiceConfig
 from app.probes.base import BaseProbe
 
 
 class MockSuccessProbe(BaseProbe):
-    async def perform_check(self) -> tuple[bool, int | None]:
+    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, int | None]:
         return True, 200
 
 
 class MockFailProbe(BaseProbe):
-    async def perform_check(self) -> tuple[bool, int | None]:
+    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, int | None]:
         return False, 500
 
 
 class MockCrashProbe(BaseProbe):
-    async def perform_check(self) -> tuple[bool, int | None]:
+    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, int | None]:
         raise ValueError("simulated probe crash")
 
 
@@ -70,7 +71,9 @@ async def test_fail_probe_returns_unhealthy(fail_config: ServiceConfig) -> None:
 
 
 @pytest.mark.asyncio
-async def test_crash_probe_is_caught_by_error_boundary(crash_config: ServiceConfig) -> None:
+async def test_crash_probe_is_caught_by_error_boundary(
+    crash_config: ServiceConfig,
+) -> None:
     probe = MockCrashProbe(config=crash_config)
     result = await probe.run()
 

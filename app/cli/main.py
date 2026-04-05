@@ -1,6 +1,8 @@
 import asyncio
 
 import typer
+from rich.console import Console
+from rich.table import Table
 from sqlmodel import Session, select
 
 from app.core.db import get_engine, init_db
@@ -14,6 +16,8 @@ app = typer.Typer(
     help="A lightweight, headless, modular Python monitoring service.",
     add_completion=False,
 )
+
+console = Console()
 
 
 @app.command()
@@ -48,6 +52,45 @@ async def _run_app(engine: ProbeEngine) -> None:
         await engine.start()
     finally:
         await engine.stop()
+
+
+@app.command()
+def list_services() -> None:
+    """Display all registered services in a formatted table."""
+    init_db()
+
+    with Session(get_engine()) as session:
+        configs = session.exec(select(ServiceConfig)).all()
+
+    if not configs:
+        console.print(
+            "[yellow]No services found.[/yellow] Add one with [bold]monagent add[/bold]"
+        )
+        return
+
+    table = Table(
+        title="Monitored Services",
+        border_style="blue",
+        show_header=True,
+        header_style="bold magenta",
+    )
+
+    table.add_column("ID", justify="right", style="dim")
+    table.add_column("Name", style="bold cyan")
+    table.add_column("Target URL", style="green")
+    table.add_column("Interval (s)", justify="right")
+    table.add_column("Timeout (s)", justify="right")
+
+    for c in configs:
+        table.add_row(
+            str(c.id),
+            c.name,
+            c.target_url,
+            str(c.interval_seconds),
+            str(c.timeout_seconds),
+        )
+
+    console.print(table)
 
 
 @app.command()

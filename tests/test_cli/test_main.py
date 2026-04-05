@@ -107,3 +107,43 @@ async def test_run_app_single_event_loop_lifecycle(memory_db: object) -> None:
 
     # If we reach here without ValueError, the single-loop refactor works
     assert True
+
+
+def test_list_command_empty_database(memory_db: object) -> None:
+    """Verify 'monagent list' handles an empty database gracefully."""
+    with patch("app.cli.main.get_engine", return_value=memory_db):
+        result = runner.invoke(app, ["list-services"])
+
+    assert result.exit_code == 0
+    assert "No services found" in result.stdout
+    assert "monagent add" in result.stdout
+
+
+def test_list_command_shows_services(memory_db: object) -> None:
+    """Verify 'monagent list-services' displays services in a Rich table."""
+    with Session(memory_db) as session:
+        session.add_all(
+            [
+                ServiceConfig(
+                    name="immich",
+                    target_url="http://192.168.1.10:2283",
+                    interval_seconds=30,
+                ),
+                ServiceConfig(
+                    name="audiobookshelf",
+                    target_url="http://192.168.1.10:13378",
+                    interval_seconds=60,
+                ),
+            ]
+        )
+        session.commit()
+
+    with patch("app.cli.main.get_engine", return_value=memory_db):
+        result = runner.invoke(app, ["list-services"])
+
+    assert result.exit_code == 0
+    assert "Monitored Services" in result.stdout
+    assert "immich" in result.stdout
+    assert "audiobookshelf" in result.stdout
+    assert "http://192.168.1.10:2283" in result.stdout
+    assert "192.168.1.10" in result.stdout

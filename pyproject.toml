@@ -12,6 +12,7 @@ dependencies = [
     "tzdata>=2024.1",
     "sqlmodel>=0.0.18",
     "typer>=0.24.1",
+    "rich>=14.3.3",
 ]
 
 [project.optional-dependencies]

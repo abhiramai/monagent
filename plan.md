@@ -19,7 +19,7 @@
 ## 3. System Architecture & Data Contracts
 
 ### 3A. The Atomic Unit (The "Contract")
-All providers MUST return this exact Pydantic model. 
+All probes MUST return this exact Pydantic model. 
 
 ```python
 from datetime import datetime, timezone
@@ -38,11 +38,11 @@ class CheckResult(BaseModel):
 ### 3B. Component Layers
 To maintain the "90% Planning" philosophy, the system is strictly decoupled into three layers:
 
-1.  **Providers (The Eyes):** - Modular classes inheriting from `BaseProvider`. 
+1.  **Probes (The Eyes):** - Modular classes inheriting from `BaseProbe`.
     - Responsibilities: Network connection, data parsing, and returning a `CheckResult`.
-    - *Example:* `TrueNASProvider`, `HTTPProvider`, `DockerProvider`.
-2.  **The Engine (The Brain):** - An `asyncio` event loop. 
-    - Responsibilities: Managing check intervals, triggering Providers concurrently, and passing results to Consumers.
+    - *Example:* `TrueNASProbe`, `HTTPProbe`, `DockerProbe`.
+2.  **The Engine (The Brain):** - An `asyncio` event loop.
+    - Responsibilities: Managing check intervals, triggering Probes concurrently, and passing results to Consumers.
 3.  **Consumers (The Voice):** - Notification handlers triggered ONLY on state changes (e.g., UP -> DOWN).
     - *Example:* `NtfyConsumer`, `TelegramConsumer`, `ConsoleLogger`.
 ---
@@ -50,9 +50,9 @@ To maintain the "90% Planning" philosophy, the system is strictly decoupled into
 ## 4. Implementation Roadmap
 
 ### Phase 1: Foundation (Structure)
-- **Directory Setup:** `/app/core`, `/app/providers`, `/app/models`.
+- **Directory Setup:** `/app/core`, `/app/probes`, `/app/models`.
 - **Environment:** Create `pyproject.toml` using `uv` (preferred for 2026 speed) or `poetry`.
-- **Base Class:** Implement `BaseProvider` Abstract Base Class (ABC) to define the `check()` method contract.
+- **Base Class:** Implement `BaseProbe` Abstract Base Class (ABC) to define the `check()` method contract.
 
 ### Phase 2: The Async Engine
 - **Orchestration:** Create `AsyncMonitorEngine` to run multiple checks concurrently.
@@ -62,7 +62,7 @@ To maintain the "90% Planning" philosophy, the system is strictly decoupled into
 ### Phase 3: Home Lab Specifics (The "Real Problems")
 - **TrueNAS SCALE v26 Integration:** Implement a WebSocket JSON-RPC v2.0 client.
 - **Target:** Query `pool.query`. Alert if any pool status != `ONLINE`.
-- **Service Checks:** Add `HTTPProvider` for **Immich** and **Audiobookshelf**.
+- **Service Checks:** Add `HTTPProbe` for **Immich** and **Audiobookshelf**.
 
 ### Phase 4: State Logic & Notifications
 - **Alert Suppression:** Implement a `StateStore` to track previous status. Only fire Consumers if `current_status != previous_status`.
@@ -72,7 +72,7 @@ To maintain the "90% Planning" philosophy, the system is strictly decoupled into
 
 ## 5. AI Guardrails (Strict)
 - **Think Before Coding:** Before every code block, the AI must summarize the design pattern it is about to use.
-- **No Monoliths:** Every Provider must live in its own file within `/app/providers/`.
+- **No Monoliths:** Every Probe must live in its own file within `/app/probes/`.
 - **No Trial and Error:** If an API endpoint is unknown, the AI must ask for clarification or reference the 2026 documentation rather than guessing.
 - **Error Handling:** Every network call must be wrapped in a `try/except` block that catches specific `httpx` or `websockets` exceptions.
 - **Documentation:** Every class and public method requires a Python docstring.

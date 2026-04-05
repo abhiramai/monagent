@@ -112,6 +112,8 @@ def run() -> None:
     probes = [HttpProbe(config=c) for c in configs]
 
     async def _run_with_tui() -> None:
+        logger.remove()
+
         engine = ProbeEngine(probes=probes)
 
         async def _start_engine() -> None:

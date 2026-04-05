@@ -81,13 +81,6 @@ class DashboardApp(App[None]):
         ServiceRow:hover {
             background: #1a1a1a;
         }
-
-        #log-footer {
-            height: 4;
-            border-top: solid #333;
-            color: #666;
-            padding: 0 1;
-        }
     """
 
     BINDINGS = [
@@ -124,7 +117,6 @@ class DashboardApp(App[None]):
                 self._rows[name] = row
                 yield row
 
-        yield Static(id="log-footer")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -150,9 +142,6 @@ class DashboardApp(App[None]):
                 row.display = False
             else:
                 row.display = True
-
-        if self._engine.log_buffer:
-            self.query_one("#log-footer", Static).update(self._engine.log_buffer[-1])
 
     def action_toggle_healthy(self) -> None:
         self.hide_healthy = not self.hide_healthy

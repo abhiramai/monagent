@@ -74,5 +74,5 @@ To maintain the "90% Planning" philosophy, the system is strictly decoupled into
 - **Think Before Coding:** Before every code block, the AI must summarize the design pattern it is about to use.
 - **No Monoliths:** Every Probe must live in its own file within `/app/probes/`.
 - **No Trial and Error:** If an API endpoint is unknown, the AI must ask for clarification or reference the 2026 documentation rather than guessing.
-- **Error Handling:** Every network call must be wrapped in a `try/except` block that catches specific `httpx` or `websockets` exceptions.
+- **Error Handling:** `BaseProbe.run()` is an Explicit Error Boundary. It must use a general `except Exception` to prevent engine-wide crashes. However, all subclasses MUST implement specific exception handling for known library errors (e.g., `httpx.RequestError`) within their `perform_check` methods to provide granular feedback.
 - **Documentation:** Every class and public method requires a Python docstring.

@@ -49,24 +49,46 @@ To maintain the "90% Planning" philosophy, the system is strictly decoupled into
 
 ## 4. Implementation Roadmap
 
-### Phase 1: Foundation (Structure)
-- **Directory Setup:** `/app/core`, `/app/probes`, `/app/models`.
-- **Environment:** Create `pyproject.toml` using `uv` (preferred for 2026 speed) or `poetry`.
-- **Base Class:** Implement `BaseProbe` Abstract Base Class (ABC) to define the `check()` method contract.
+### Phase 1: Foundation (Structure) ✅
+- **Directory Setup:** `/app/core`, `/app/probes`, `/app/models`, `/app/cli`, `/app/tui`, `/app/consumers`.
+- **Environment:** `pyproject.toml` with `uv`, `hatchling` build system.
+- **Base Class:** `BaseProbe` ABC with ODD-driven `run()` wrapper (timing, logging, error boundary).
+- **Models:** `CheckResult` (frozen Pydantic) and `ServiceConfig` (SQLModel table).
 
-### Phase 2: The Async Engine
-- **Orchestration:** Create `AsyncMonitorEngine` to run multiple checks concurrently.
-- **Timing:** Use `asyncio.sleep()` loops that respect individual service intervals.
-- **Logging:** Implement structured logging (Standard `logging` or `Loguru`).
+### Phase 2: The Async Engine ✅
+- **Orchestration:** `ProbeEngine` with concurrent heartbeat loops per probe.
+- **Connection Pooling:** Single shared `httpx.AsyncClient` with `follow_redirects=True`.
+- **TDD:** Engine runs multiple probes concurrently for 5s without crashing.
 
-### Phase 3: Home Lab Specifics (The "Real Problems")
-- **TrueNAS SCALE v26 Integration:** Implement a WebSocket JSON-RPC v2.0 client.
-- **Target:** Query `pool.query`. Alert if any pool status != `ONLINE`.
-- **Service Checks:** Add `HTTPProbe` for **Immich** and **Audiobookshelf**.
+### Phase 3: Storage Layer ✅
+- **SQLModel + SQLite:** `ServiceConfig` persisted to `data/monagent.db`.
+- **Session Management:** `get_engine()` and `get_session()` generators.
+- **TDD:** In-memory SQLite save/retrieve test.
 
-### Phase 4: State Logic & Notifications
-- **Alert Suppression:** Implement a `StateStore` to track previous status. Only fire Consumers if `current_status != previous_status`.
-- **Resilience:** Add "Retry Logic"—a service must fail $X$ consecutive times (default 3) before a "DOWN" alert is sent.
+### Phase 4: HTTP Probe ✅
+- **HttpProbe:** `httpx.AsyncClient`-based health checks.
+- **Resilience:** Catches `ConnectTimeout`, `ConnectError`, `HTTPStatusError`.
+- **ODD:** Granular failure logging (e.g., "Connection timed out after 10s").
+
+### Phase 5: CLI & Connection Pooling Refactor ✅
+- **Typer CLI:** `monagent add`, `monagent list-services`, `monagent run`.
+- **Entry Point:** `[project.scripts]` with `hatchling`.
+- **Master Client:** Engine owns one `httpx.AsyncClient`, passes to all probes.
+
+### Phase 6: Zenith Dashboard (TUI) ✅
+- **Textual TUI:** htop-style single-line rows with `VerticalScroll`.
+- **Features:** Sydney AEST clock, `H` key to hide healthy, `Q` to quit.
+- **Loguru Silencing:** Console logs suppressed during TUI, file logs continue.
+
+### Phase 7: TrueNAS SCALE Integration (Next)
+- **WebSocket JSON-RPC v2.0:** `TrueNASProbe` connecting to TrueNAS SCALE API.
+- **Target:** Query `pool.query` — alert if any pool status != `ONLINE`.
+- **Service Checks:** Add HTTP probes for **Immich** and **Audiobookshelf**.
+
+### Phase 8: State Logic & Notifications (Future)
+- **Alert Suppression:** `StateStore` to track previous status. Only fire on state changes.
+- **Retry Logic:** Service must fail X consecutive times (default 3) before DOWN alert.
+- **Consumers:** `NtfyConsumer`, `TelegramConsumer`, `ConsoleLogger`.
 
 ---
 

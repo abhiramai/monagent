@@ -39,3 +39,8 @@ ignore_missing_imports = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-s"
+
+[dependency-groups]
+dev = [
+    "respx>=0.22.0",
+]

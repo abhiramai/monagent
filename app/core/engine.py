@@ -26,7 +26,7 @@ class ProbeEngine:
         """
         logger.info(f"ProbeEngine starting with {len(self._probes)} probe(s)")
 
-        self._client = httpx.AsyncClient()
+        self._client = httpx.AsyncClient(follow_redirects=True)
         self._tasks = [
             asyncio.create_task(self._run_probe(probe), name=probe.config.name)
             for probe in self._probes

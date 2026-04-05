@@ -42,6 +42,14 @@ def add(
     typer.echo(f"Added '{name}' monitoring {url}")
 
 
+async def _run_app(engine: ProbeEngine) -> None:
+    """Run the engine lifecycle in a single event loop."""
+    try:
+        await engine.start()
+    finally:
+        await engine.stop()
+
+
 @app.command()
 def run() -> None:
     """Start the monitoring engine with all registered services."""
@@ -59,10 +67,7 @@ def run() -> None:
     probes = [HttpProbe(config=c) for c in configs]
     engine = ProbeEngine(probes=probes)
 
-    try:
-        asyncio.run(engine.start())
-    except KeyboardInterrupt:
-        asyncio.run(engine.stop())
+    asyncio.run(_run_app(engine))
 
 
 if __name__ == "__main__":

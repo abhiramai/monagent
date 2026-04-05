@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.cli.main import app
+from app.cli.main import _run_app, app
 from app.models.check_result import ServiceConfig
 from typer.testing import CliRunner
 
@@ -68,3 +68,42 @@ def test_run_command_loads_and_starts_engine(memory_db: object) -> None:
 
     assert result.exit_code == 0
     mock_start.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_app_single_event_loop_lifecycle(memory_db: object) -> None:
+    """
+    Prove that _run_app runs start -> loop -> stop in ONE event loop,
+    exiting cleanly without ValueError.
+    """
+    from app.core.engine import ProbeEngine
+    from app.probes.base import BaseProbe
+    import httpx
+
+    class QuickProbe(BaseProbe):
+        async def perform_check(
+            self, client: httpx.AsyncClient
+        ) -> tuple[bool, int | None]:
+            return True, 200
+
+    config = ServiceConfig(
+        name="quick-test",
+        target_url="http://localhost:8080",
+        interval_seconds=1,
+    )
+
+    engine = ProbeEngine(probes=[QuickProbe(config=config)])
+
+    # Run for 3 seconds then cancel — should exit cleanly
+    async def _cancel_after_delay() -> None:
+        await asyncio.sleep(3)
+        await engine.stop()
+
+    # Both tasks run in the SAME event loop
+    await asyncio.gather(
+        _run_app(engine),
+        _cancel_after_delay(),
+    )
+
+    # If we reach here without ValueError, the single-loop refactor works
+    assert True

@@ -1,11 +1,14 @@
 import asyncio
-from typing import Optional, Sequence
+from collections import deque
+from typing import Callable, Optional, Sequence
 
 import httpx
 from loguru import logger
 
 from app.models.check_result import CheckResult
 from app.probes.base import BaseProbe
+
+ResultCallback = Callable[[CheckResult], None]
 
 
 class ProbeEngine:
@@ -14,10 +17,20 @@ class ProbeEngine:
     concurrently, using a single shared httpx.AsyncClient for connection pooling.
     """
 
-    def __init__(self, probes: Sequence[BaseProbe]) -> None:
+    def __init__(
+        self,
+        probes: Sequence[BaseProbe],
+        result_callback: Optional[ResultCallback] = None,
+    ) -> None:
         self._probes = probes
+        self._result_callback = result_callback
         self._tasks: list[asyncio.Task[None]] = []
         self._client: Optional[httpx.AsyncClient] = None
+        self._log_buffer: deque[str] = deque(maxlen=5)
+
+    @property
+    def log_buffer(self) -> list[str]:
+        return list(self._log_buffer)
 
     async def start(self) -> None:
         """
@@ -58,7 +71,7 @@ class ProbeEngine:
         while True:
             try:
                 result = await probe.run(client=self._client)
-                self._log_result(result)
+                self._on_result(result)
             except asyncio.CancelledError:
                 logger.info(f"Probe '{probe.config.name}' cancelled")
                 raise
@@ -70,13 +83,16 @@ class ProbeEngine:
 
             await asyncio.sleep(probe.config.interval_seconds)
 
-    @staticmethod
-    def _log_result(result: CheckResult) -> None:
-        """Emit a structured summary for every probe execution."""
+    def _on_result(self, result: CheckResult) -> None:
+        """Emit result to logger and optional callback for TUI."""
         status = "HEALTHY" if result.is_healthy else "UNHEALTHY"
-        logger.info(
+        log_line = (
             f"[{result.service_name}] {status} | "
             f"latency={result.latency_ms}ms | "
             f"code={result.status_code} | "
             f"error={result.error_message}"
         )
+        logger.info(log_line)
+        self._log_buffer.append(log_line)
+        if self._result_callback is not None:
+            self._result_callback(result)

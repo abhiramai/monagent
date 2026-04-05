@@ -10,6 +10,7 @@ from app.core.engine import ProbeEngine
 from app.core.logger import logger
 from app.models.check_result import ServiceConfig
 from app.probes.http import HttpProbe
+from app.tui.dashboard import DashboardApp
 
 app = typer.Typer(
     name="monagent",
@@ -95,7 +96,7 @@ def list_services() -> None:
 
 @app.command()
 def run() -> None:
-    """Start the monitoring engine with all registered services."""
+    """Launch the Zenith Dashboard TUI and start monitoring."""
     init_db()
 
     with Session(get_engine()) as session:
@@ -107,10 +108,32 @@ def run() -> None:
 
     logger.info(f"Loaded {len(configs)} service(s) from database")
 
+    service_names = [c.name for c in configs]
     probes = [HttpProbe(config=c) for c in configs]
-    engine = ProbeEngine(probes=probes)
 
-    asyncio.run(_run_app(engine))
+    async def _run_with_tui() -> None:
+        engine = ProbeEngine(probes=probes)
+
+        async def _start_engine() -> None:
+            try:
+                await engine.start()
+            finally:
+                await engine.stop()
+
+        dashboard = DashboardApp(
+            engine=engine,
+            service_names=service_names,
+        )
+
+        engine_task = asyncio.create_task(_start_engine())
+        await dashboard.run_async()
+        engine_task.cancel()
+        try:
+            await engine_task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_run_with_tui())
 
 
 if __name__ == "__main__":

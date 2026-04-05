@@ -49,7 +49,7 @@ def test_add_command_creates_row(memory_db: object) -> None:
 
 
 def test_run_command_loads_and_starts_engine(memory_db: object) -> None:
-    """Verify 'monagent run' loads configs and calls engine.start()."""
+    """Verify 'monagent run' loads configs and launches the TUI dashboard."""
     with Session(memory_db) as session:
         session.add(
             ServiceConfig(
@@ -61,13 +61,10 @@ def test_run_command_loads_and_starts_engine(memory_db: object) -> None:
         session.commit()
 
     with patch("app.cli.main.get_engine", return_value=memory_db):
-        with patch(
-            "app.cli.main.ProbeEngine.start", new_callable=AsyncMock
-        ) as mock_start:
+        with patch("app.cli.main.DashboardApp.run_async", new_callable=AsyncMock):
             result = runner.invoke(app, ["run"])
 
     assert result.exit_code == 0
-    mock_start.assert_called_once()
 
 
 @pytest.mark.asyncio

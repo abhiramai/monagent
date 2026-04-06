@@ -11,28 +11,26 @@ from app.models.check_result import CheckResult
 
 AEST = ZoneInfo("Australia/Sydney")
 
-COL_TYPE_W = 6
-COL_NAME_W = 16
-COL_URL_W = 32
-COL_RESP_W = 8
-COL_LAT_W = 12
-COL_STATUS_W = 10
+# ── Column Width Constants ──────────────────────────────────────────
+COL_PROBE = 12
+COL_SERVICE = 20
+COL_TARGET = 35
+COL_RESP = 10
+COL_LATENCY = 12
+COL_STATUS = 12
+
+TOTAL_WIDTH = COL_PROBE + COL_SERVICE + COL_TARGET + COL_RESP + COL_LATENCY + COL_STATUS
 
 HEADER_FMT = (
-    f"[bold #00ffff]{'PROBE':<{COL_TYPE_W}}[/]"
-    f"[bold #00ffff]{'SERVICE':<{COL_NAME_W}}[/]"
-    f"[bold #00ffff]{'TARGET':<{COL_URL_W}}[/]"
-    f"[bold #00ffff]{'RESP':<{COL_RESP_W}}[/]"
-    f"[bold #00ffff]{'LATENCY':<{COL_LAT_W}}[/]"
-    f"[bold #00ffff]{'STATUS':<{COL_STATUS_W}}[/]"
+    f"[bold #00ffff]{'PROBE':<{COL_PROBE}}[/]"
+    f"[bold #00ffff]{'SERVICE':<{COL_SERVICE}}[/]"
+    f"[bold #00ffff]{'TARGET':<{COL_TARGET}}[/]"
+    f"[bold #00ffff]{'RESP':<{COL_RESP}}[/]"
+    f"[bold #00ffff]{'LATENCY':<{COL_LATENCY}}[/]"
+    f"[bold #00ffff]{'STATUS':<{COL_STATUS}}[/]"
 )
 
-SEPARATOR = (
-    "[dim #333333]"
-    + "─"
-    * (COL_TYPE_W + COL_NAME_W + COL_URL_W + COL_RESP_W + COL_LAT_W + COL_STATUS_W)
-    + "[/]"
-)
+SEPARATOR = "[dim #333333]" + "─" * TOTAL_WIDTH + "[/]"
 
 
 class ServiceRow(Static):
@@ -64,11 +62,12 @@ class ServiceRow(Static):
         assert self._result is not None
         r = self._result
 
-        type_display = (
-            f"[dim]HTTP[/]{'':>{COL_TYPE_W - 4}}"
+        probe_display = (
+            f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
             if self.probe_type == "http"
-            else f"{'':<{COL_TYPE_W}}"
+            else f"{'':<{COL_PROBE}}"
         )
+
         resp = str(r.status_code) if r.status_code else "ERR"
         lat = f"{r.latency_ms:.1f}ms"
 
@@ -78,21 +77,23 @@ class ServiceRow(Static):
             badge = "[white on #cc2222] UNHEALTHY[/]"
 
         url_display = (
-            self.url if len(self.url) <= COL_URL_W else self.url[: COL_URL_W - 1] + "…"
+            self.url
+            if len(self.url) <= COL_TARGET
+            else self.url[: COL_TARGET - 1] + "…"
         )
 
         self.update(
-            f"{type_display}"
-            f"[bold cyan]{self.service_name:<{COL_NAME_W}}[/]"
-            f"[dim green]{url_display:<{COL_URL_W}}[/]"
-            f"[yellow]{resp:<{COL_RESP_W}}[/]"
-            f"[magenta]{lat:<{COL_LAT_W}}[/]"
+            f"{probe_display}"
+            f"[bold cyan]{self.service_name:<{COL_SERVICE}}[/]"
+            f"[dim green]{url_display:<{COL_TARGET}}[/]"
+            f"[yellow]{resp:<{COL_RESP}}[/]"
+            f"[magenta]{lat:<{COL_LATENCY}}[/]"
             f"{badge}"
         )
 
 
 class DashboardApp(App[None]):
-    """The Zenith Dashboard — a professional, row-based TUI."""
+    """The Zenith Dashboard — a professional, constant-aligned TUI."""
 
     CSS = """
         Screen {

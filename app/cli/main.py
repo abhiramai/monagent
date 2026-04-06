@@ -108,7 +108,7 @@ def run() -> None:
 
     logger.info(f"Loaded {len(configs)} service(s) from database")
 
-    service_names = [c.name for c in configs]
+    services = [{"type": "http", "name": c.name, "url": c.target_url} for c in configs]
     probes = [HttpProbe(config=c) for c in configs]
 
     async def _run_with_tui() -> None:
@@ -124,7 +124,7 @@ def run() -> None:
 
         dashboard = DashboardApp(
             engine=engine,
-            service_names=service_names,
+            services=services,
         )
 
         engine_task = asyncio.create_task(_start_engine())

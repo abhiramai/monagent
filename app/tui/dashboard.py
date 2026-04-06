@@ -1,7 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.reactive import reactive
@@ -12,44 +11,95 @@ from app.models.check_result import CheckResult
 
 AEST = ZoneInfo("Australia/Sydney")
 
+COL_TYPE_W = 6
+COL_NAME_W = 16
+COL_URL_W = 32
+COL_RESP_W = 8
+COL_LAT_W = 12
+COL_STATUS_W = 10
+
+HEADER_FMT = (
+    f"[bold #00ffff]{'PROBE':<{COL_TYPE_W}}[/]"
+    f"[bold #00ffff]{'SERVICE':<{COL_NAME_W}}[/]"
+    f"[bold #00ffff]{'TARGET':<{COL_URL_W}}[/]"
+    f"[bold #00ffff]{'RESP':<{COL_RESP_W}}[/]"
+    f"[bold #00ffff]{'LATENCY':<{COL_LAT_W}}[/]"
+    f"[bold #00ffff]{'STATUS':<{COL_STATUS_W}}[/]"
+)
+
+SEPARATOR = (
+    "[dim #333333]"
+    + "─"
+    * (COL_TYPE_W + COL_NAME_W + COL_URL_W + COL_RESP_W + COL_LAT_W + COL_STATUS_W)
+    + "[/]"
+)
+
 
 class ServiceRow(Static):
-    """A high-density, single-line status row."""
+    """A high-density, single-line service status row."""
 
-    def __init__(self, name: str, url: str) -> None:
+    DEFAULT_CSS = """
+        ServiceRow {
+            height: 1;
+            padding: 0 1;
+            margin-bottom: 0;
+        }
+        ServiceRow:hover {
+            background: #1a1a1a;
+        }
+    """
+
+    def __init__(self, probe_type: str, name: str, url: str) -> None:
         super().__init__()
+        self.probe_type = probe_type
         self.service_name = name
         self.url = url
         self._result: CheckResult | None = None
-        self.status = "PENDING"
-        self.latency = "0.00ms"
-        self.code = "---"
 
     def update_data(self, result: CheckResult) -> None:
         self._result = result
-        self.status = "HEALTHY" if result.is_healthy else "UNHEALTHY"
-        self.latency = f"{result.latency_ms:.2f}ms"
-        self.code = str(result.status_code) if result.status_code else "ERR"
-        self._refresh_content()
+        self._refresh()
 
-    def _refresh_content(self) -> None:
-        color = "green" if self.status == "HEALTHY" else "red"
+    def _refresh(self) -> None:
+        assert self._result is not None
+        r = self._result
+
+        type_display = (
+            f"[dim]HTTP[/]{'':>{COL_TYPE_W - 4}}"
+            if self.probe_type == "http"
+            else f"{'':<{COL_TYPE_W}}"
+        )
+        resp = str(r.status_code) if r.status_code else "ERR"
+        lat = f"{r.latency_ms:.1f}ms"
+
+        if r.is_healthy:
+            badge = "[white on #00aa44] HEALTHY [/]"
+        else:
+            badge = "[white on #cc2222] UNHEALTHY[/]"
+
+        url_display = (
+            self.url if len(self.url) <= COL_URL_W else self.url[: COL_URL_W - 1] + "…"
+        )
+
         self.update(
-            f"[bold cyan]{self.service_name:<15}[/] "
-            f"[dim white]{self.url:<30}[/] "
-            f"[yellow]{self.code:>5}[/] "
-            f"[magenta]{self.latency:>10}[/] "
-            f" [white on {color}] {self.status} [/]"
+            f"{type_display}"
+            f"[bold cyan]{self.service_name:<{COL_NAME_W}}[/]"
+            f"[dim green]{url_display:<{COL_URL_W}}[/]"
+            f"[yellow]{resp:<{COL_RESP_W}}[/]"
+            f"[magenta]{lat:<{COL_LAT_W}}[/]"
+            f"{badge}"
         )
 
 
 class DashboardApp(App[None]):
-    """The Zenith-inspired High-Density Dashboard."""
+    """The Zenith Dashboard — a professional, row-based TUI."""
 
     CSS = """
-        Screen { background: #0c0c0c; }
+        Screen {
+            background: #0c0c0c;
+        }
 
-        #top-bar {
+        #header-bar {
             height: 1;
             padding: 0 1;
         }
@@ -67,19 +117,14 @@ class DashboardApp(App[None]):
             padding: 0 1;
         }
 
+        #column-header {
+            height: 1;
+            padding: 0 1;
+            background: #1a1a2e;
+        }
+
         #row-container {
             height: 1fr;
-            padding: 0 1;
-        }
-
-        ServiceRow {
-            height: 1;
-            margin-bottom: 0;
-            padding: 0 1;
-        }
-
-        ServiceRow:hover {
-            background: #1a1a1a;
         }
     """
 
@@ -93,28 +138,35 @@ class DashboardApp(App[None]):
     def __init__(
         self,
         engine: ProbeEngine,
-        service_names: list[str],
+        services: list[dict[str, str]],
         **kwargs: object,
     ) -> None:
+        """
+        Args:
+            engine: The running ProbeEngine.
+            services: List of dicts with keys 'type', 'name', 'url'.
+        """
         super().__init__(**kwargs)
         self._engine = engine
-        self._service_names = service_names
+        self._services = services
         self._rows: dict[str, ServiceRow] = {}
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="top-bar"):
+        with Horizontal(id="header-bar"):
             yield Label("monagent v0.1.0", id="app-title")
             yield Label("", id="sydney-clock")
 
+        yield Static(HEADER_FMT, id="column-header")
+        yield Static(SEPARATOR, id="column-separator")
+
         with VerticalScroll(id="row-container"):
-            for name in self._service_names:
-                url = next(
-                    p.config.target_url
-                    for p in self._engine._probes
-                    if p.config.name == name
+            for svc in self._services:
+                row = ServiceRow(
+                    probe_type=svc["type"],
+                    name=svc["name"],
+                    url=svc["url"],
                 )
-                row = ServiceRow(name, url)
-                self._rows[name] = row
+                self._rows[svc["name"]] = row
                 yield row
 
         yield Footer()
@@ -125,12 +177,11 @@ class DashboardApp(App[None]):
         self._engine._result_callback = self.post_result
 
     def _update_clock(self) -> None:
-        self.query_one("#sydney-clock", Label).update(
-            datetime.now(AEST).strftime("%H:%M:%S AEST")
-        )
+        now = datetime.now(AEST).strftime("%H:%M:%S AEST")
+        self.query_one("#sydney-clock", Label).update(now)
 
     def post_result(self, result: CheckResult) -> None:
-        """Safe message passing to the UI thread."""
+        """Thread-safe entry point called by the engine callback."""
         self.call_next(self._update_row, result)
 
     def _update_row(self, result: CheckResult) -> None:
@@ -145,7 +196,7 @@ class DashboardApp(App[None]):
 
     def action_toggle_healthy(self) -> None:
         self.hide_healthy = not self.hide_healthy
-        for name, row in self._rows.items():
+        for row in self._rows.values():
             if self.hide_healthy:
                 row.display = (
                     not row._result.is_healthy if row._result is not None else True

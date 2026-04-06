@@ -3,11 +3,11 @@ import asyncio
 import typer
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.db import get_engine, init_db
 from app.core.engine import ProbeEngine
-from app.core.logger import logger
 from app.models.check_result import ServiceConfig
 from app.probes.http import HttpProbe
 from app.tui.dashboard import DashboardApp
@@ -40,19 +40,83 @@ def add(
 
     with Session(get_engine()) as session:
         session.add(config)
+        try:
+            session.commit()
+            session.refresh(config)
+        except IntegrityError:
+            session.rollback()
+            console.print(
+                f"[bold red]Error:[/] A service named '{name}' already exists."
+            )
+            raise typer.Exit(1)
+
+    console.print(
+        f"[green]✓[/green] Added '[bold cyan]{name}[/bold cyan]' monitoring {url} (every {interval}s)"
+    )
+
+
+@app.command()
+def delete(
+    name: str = typer.Option(..., help="Service name to delete"),
+) -> None:
+    """Remove a service from monitoring."""
+    init_db()
+
+    with Session(get_engine()) as session:
+        config = session.exec(
+            select(ServiceConfig).where(ServiceConfig.name == name)
+        ).first()
+
+        if config is None:
+            console.print(f"[bold red]Error:[/] No service named '{name}' found.")
+            raise typer.Exit(1)
+
+        if not typer.confirm(f"Are you sure you want to delete '{name}'?"):
+            console.print("Aborted.")
+            raise typer.Exit(0)
+
+        session.delete(config)
         session.commit()
-        session.refresh(config)
 
-    logger.info(f"Added service '{name}' → {url} (every {interval}s)")
-    typer.echo(f"Added '{name}' monitoring {url}")
+    console.print(f"[green]✓[/green] Deleted '[bold cyan]{name}[/bold cyan]'.")
 
 
-async def _run_app(engine: ProbeEngine) -> None:
-    """Run the engine lifecycle in a single event loop."""
-    try:
-        await engine.start()
-    finally:
-        await engine.stop()
+@app.command()
+def update(
+    name: str = typer.Option(..., help="Service name to update"),
+    url: str | None = typer.Option(None, help="New health check URL"),
+    interval: int | None = typer.Option(None, help="New check interval in seconds"),
+    timeout: int | None = typer.Option(None, help="New request timeout in seconds"),
+) -> None:
+    """Update an existing service's configuration."""
+    init_db()
+
+    if not any([url, interval, timeout]):
+        console.print(
+            "[bold red]Error:[/] Provide at least one field to update (--url, --interval, or --timeout)."
+        )
+        raise typer.Exit(1)
+
+    with Session(get_engine()) as session:
+        config = session.exec(
+            select(ServiceConfig).where(ServiceConfig.name == name)
+        ).first()
+
+        if config is None:
+            console.print(f"[bold red]Error:[/] No service named '{name}' found.")
+            raise typer.Exit(1)
+
+        if url is not None:
+            config.target_url = url
+        if interval is not None:
+            config.interval_seconds = interval
+        if timeout is not None:
+            config.timeout_seconds = timeout
+
+        session.add(config)
+        session.commit()
+
+    console.print(f"[green]✓[/green] Updated '[bold cyan]{name}[/bold cyan]'.")
 
 
 @app.command()
@@ -103,15 +167,17 @@ def run() -> None:
         configs = session.exec(select(ServiceConfig)).all()
 
     if not configs:
-        typer.echo("No services registered. Use 'monagent add' first.")
+        console.print(
+            "[bold red]Error:[/] No services registered. Use [bold]monagent add[/bold] first."
+        )
         raise typer.Exit(1)
-
-    logger.info(f"Loaded {len(configs)} service(s) from database")
 
     services = [{"type": "http", "name": c.name, "url": c.target_url} for c in configs]
     probes = [HttpProbe(config=c) for c in configs]
 
     async def _run_with_tui() -> None:
+        from loguru import logger
+
         logger.remove()
 
         engine = ProbeEngine(probes=probes)

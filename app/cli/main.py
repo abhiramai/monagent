@@ -29,6 +29,9 @@ def add(
     type: str = typer.Option("http", help="Probe type: http or tcp"),
     interval: int = typer.Option(30, help="Check interval in seconds"),
     timeout: int = typer.Option(10, help="Request timeout in seconds"),
+    alert_threshold: int = typer.Option(
+        0, help="Consecutive failures before alert fires (0 = disabled)"
+    ),
 ) -> None:
     """Register a new service to monitor."""
     init_db()
@@ -45,6 +48,7 @@ def add(
         probe_type=type,
         interval_seconds=interval,
         timeout_seconds=timeout,
+        alert_threshold=alert_threshold,
     )
 
     with Session(get_engine()) as session:
@@ -97,13 +101,16 @@ def update(
     type: str | None = typer.Option(None, help="New probe type: http or tcp"),
     interval: int | None = typer.Option(None, help="New check interval in seconds"),
     timeout: int | None = typer.Option(None, help="New request timeout in seconds"),
+    alert_threshold: int | None = typer.Option(
+        None, help="Consecutive failures before alert fires (0 = disabled)"
+    ),
 ) -> None:
     """Update an existing service's configuration."""
     init_db()
 
-    if not any([url, type, interval, timeout]):
+    if not any([url, type, interval, timeout, alert_threshold is not None]):
         console.print(
-            "[bold red]Error:[/] Provide at least one field to update (--url, --type, --interval, or --timeout)."
+            "[bold red]Error:[/] Provide at least one field to update (--url, --type, --interval, --timeout, or --alert-threshold)."
         )
         raise typer.Exit(1)
 
@@ -130,6 +137,8 @@ def update(
             config.interval_seconds = interval
         if timeout is not None:
             config.timeout_seconds = timeout
+        if alert_threshold is not None:
+            config.alert_threshold = alert_threshold
 
         session.add(config)
         session.commit()
@@ -164,8 +173,12 @@ def list_services() -> None:
     table.add_column("Target URL", style="green")
     table.add_column("Interval (s)", justify="right")
     table.add_column("Timeout (s)", justify="right")
+    table.add_column("Alert Threshold", justify="right")
 
     for c in configs:
+        alert_display = (
+            str(c.alert_threshold) if c.alert_threshold > 0 else "[dim]disabled[/]"
+        )
         table.add_row(
             str(c.id),
             c.probe_type.upper(),
@@ -173,6 +186,7 @@ def list_services() -> None:
             c.target_url,
             str(c.interval_seconds),
             str(c.timeout_seconds),
+            alert_display,
         )
 
     console.print(table)

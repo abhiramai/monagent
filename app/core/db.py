@@ -46,6 +46,10 @@ def _migrate_columns() -> None:
             "probe_type",
             "ALTER TABLE service_config ADD COLUMN probe_type VARCHAR DEFAULT 'http'",
         ),
+        (
+            "alert_threshold",
+            "ALTER TABLE service_config ADD COLUMN alert_threshold INTEGER DEFAULT 0",
+        ),
     ]
 
     with Session(_engine) as session:

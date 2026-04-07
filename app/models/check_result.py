@@ -33,3 +33,4 @@ class ServiceConfig(SQLModel, table=True):
     probe_type: str = SQLField(default="http")
     interval_seconds: int = SQLField(ge=1)
     timeout_seconds: int = SQLField(default=10, ge=1)
+    alert_threshold: int = SQLField(default=0)

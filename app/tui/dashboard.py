@@ -18,8 +18,17 @@ COL_TARGET = 35
 COL_RESP = 10
 COL_LATENCY = 12
 COL_STATUS = 12
+COL_ALERT = 3
 
-TOTAL_WIDTH = COL_PROBE + COL_SERVICE + COL_TARGET + COL_RESP + COL_LATENCY + COL_STATUS
+TOTAL_WIDTH = (
+    COL_PROBE
+    + COL_SERVICE
+    + COL_TARGET
+    + COL_RESP
+    + COL_LATENCY
+    + COL_STATUS
+    + COL_ALERT
+)
 
 HEADER_FMT = (
     f"[bold #00ffff]{'PROBE':<{COL_PROBE}}[/]"
@@ -28,6 +37,7 @@ HEADER_FMT = (
     f"[bold #00ffff]{'RESP':<{COL_RESP}}[/]"
     f"[bold #00ffff]{'LATENCY':<{COL_LATENCY}}[/]"
     f"[bold #00ffff]{'STATUS':<{COL_STATUS}}[/]"
+    f"[bold #00ffff]{'!':<{COL_ALERT}}[/]"
 )
 
 SEPARATOR = "[dim #333333]" + "─" * TOTAL_WIDTH + "[/]"
@@ -55,6 +65,7 @@ class ServiceRow(Static):
         self.service_name = name
         self.url = url
         self._result: CheckResult | None = None
+        self._alerted = False
 
     def on_mount(self) -> None:
         if len(self.url) > COL_TARGET:
@@ -63,8 +74,9 @@ class ServiceRow(Static):
     def _tick_scroll(self) -> None:
         self.scroll_offset += 1
 
-    def update_data(self, result: CheckResult) -> None:
+    def update_data(self, result: CheckResult, alerted: bool = False) -> None:
         self._result = result
+        self._alerted = alerted
         self._refresh()
 
     def _refresh(self) -> None:
@@ -98,6 +110,8 @@ class ServiceRow(Static):
             ]
             url_display = window
 
+        alert_display = "[bold yellow]🔔[/]" if self._alerted else "[dim].[/]"
+
         self.update(
             f"{probe_display}"
             f"[bold cyan]{self.service_name:<{COL_SERVICE}}[/]"
@@ -105,6 +119,7 @@ class ServiceRow(Static):
             f"[yellow]{resp:<{COL_RESP}}[/]"
             f"[magenta]{lat:<{COL_LATENCY}}[/]"
             f"{badge}"
+            f"{alert_display}"
         )
 
 
@@ -197,14 +212,14 @@ class DashboardApp(App[None]):
         now = datetime.now(AEST).strftime("%H:%M:%S AEST")
         self.query_one("#sydney-clock", Label).update(now)
 
-    def post_result(self, result: CheckResult) -> None:
+    def post_result(self, result: CheckResult, alerted: bool = False) -> None:
         """Thread-safe entry point called by the engine callback."""
-        self.call_next(self._update_row, result)
+        self.call_next(self._update_row, result, alerted)
 
-    def _update_row(self, result: CheckResult) -> None:
+    def _update_row(self, result: CheckResult, alerted: bool = False) -> None:
         if result.service_name in self._rows:
             row = self._rows[result.service_name]
-            row.update_data(result)
+            row.update_data(result, alerted)
 
             if self.hide_healthy and result.is_healthy:
                 row.display = False

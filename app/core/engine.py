@@ -8,7 +8,7 @@ from loguru import logger
 from app.models.check_result import CheckResult
 from app.probes.base import BaseProbe
 
-ResultCallback = Callable[[CheckResult], None]
+ResultCallback = Callable[[CheckResult, bool], None]
 
 
 class ProbeEngine:
@@ -27,10 +27,16 @@ class ProbeEngine:
         self._tasks: list[asyncio.Task[None]] = []
         self._client: Optional[httpx.AsyncClient] = None
         self._log_buffer: deque[str] = deque(maxlen=5)
+        self._failure_counts: dict[str, int] = {}
+        self._alerted_state: dict[str, bool] = {}
 
     @property
     def log_buffer(self) -> list[str]:
         return list(self._log_buffer)
+
+    def get_alerted_state(self, service_name: str) -> bool:
+        """Check if a service currently has an active alert."""
+        return self._alerted_state.get(service_name, False)
 
     async def start(self) -> None:
         """
@@ -68,10 +74,13 @@ class ProbeEngine:
             f"every {probe.config.interval_seconds}s"
         )
 
+        self._failure_counts[probe.config.name] = 0
+        self._alerted_state[probe.config.name] = False
+
         while True:
             try:
                 result = await probe.run(client=self._client)
-                self._on_result(result)
+                self._on_result(result, probe.config.alert_threshold)
             except asyncio.CancelledError:
                 logger.info(f"Probe '{probe.config.name}' cancelled")
                 raise
@@ -83,7 +92,7 @@ class ProbeEngine:
 
             await asyncio.sleep(probe.config.interval_seconds)
 
-    def _on_result(self, result: CheckResult) -> None:
+    def _on_result(self, result: CheckResult, alert_threshold: int) -> None:
         """Emit result to logger and optional callback for TUI."""
         status = "HEALTHY" if result.is_healthy else "UNHEALTHY"
         log_line = (
@@ -94,5 +103,27 @@ class ProbeEngine:
         )
         logger.info(log_line)
         self._log_buffer.append(log_line)
+
+        # Alert state tracking (only if threshold > 0)
+        service = result.service_name
+        if alert_threshold > 0:
+            if not result.is_healthy:
+                self._failure_counts[service] = self._failure_counts.get(service, 0) + 1
+                if self._failure_counts[
+                    service
+                ] == alert_threshold and not self._alerted_state.get(service, False):
+                    self._alerted_state[service] = True
+                    logger.warning(
+                        f"🔔 ALERT: '{service}' has failed "
+                        f"{alert_threshold} consecutive checks"
+                    )
+            else:
+                if self._alerted_state.get(service, False):
+                    self._alerted_state[service] = False
+                    logger.info(f"✅ RECOVERED: '{service}' is healthy again")
+                self._failure_counts[service] = 0
+
+        is_alerted = self._alerted_state.get(service, False)
+
         if self._result_callback is not None:
-            self._result_callback(result)
+            self._result_callback(result, is_alerted)

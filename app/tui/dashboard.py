@@ -37,7 +37,7 @@ HEADER_FMT = (
     f"[bold #00ffff]{'RESP':<{COL_RESP}}[/]"
     f"[bold #00ffff]{'LATENCY':<{COL_LATENCY}}[/]"
     f"[bold #00ffff]{'STATUS':<{COL_STATUS}}[/]"
-    f"[bold #00ffff]{'🔔':<{COL_ALERT}}[/]"
+    f"[bold #00ffff]{'🔔/🚨':<{COL_ALERT}}[/]"
 )
 
 SEPARATOR = "[dim #333333]" + "─" * TOTAL_WIDTH + "[/]"

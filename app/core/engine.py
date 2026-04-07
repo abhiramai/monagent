@@ -5,6 +5,7 @@ from typing import Callable, Optional, Sequence
 import httpx
 from loguru import logger
 
+from app.core.alerts import AlertManager
 from app.models.check_result import CheckResult
 from app.probes.base import BaseProbe
 
@@ -29,6 +30,7 @@ class ProbeEngine:
         self._log_buffer: deque[str] = deque(maxlen=5)
         self._failure_counts: dict[str, int] = {}
         self._alerted_state: dict[str, bool] = {}
+        self._alert_manager = AlertManager()
 
     @property
     def log_buffer(self) -> list[str]:
@@ -80,7 +82,7 @@ class ProbeEngine:
         while True:
             try:
                 result = await probe.run(client=self._client)
-                self._on_result(result, probe.config.alert_threshold)
+                await self._on_result(result, probe.config.alert_threshold)
             except asyncio.CancelledError:
                 logger.info(f"Probe '{probe.config.name}' cancelled")
                 raise
@@ -92,8 +94,8 @@ class ProbeEngine:
 
             await asyncio.sleep(probe.config.interval_seconds)
 
-    def _on_result(self, result: CheckResult, alert_threshold: int) -> None:
-        """Emit result to logger and optional callback for TUI."""
+    async def _on_result(self, result: CheckResult, alert_threshold: int) -> None:
+        """Emit result to logger, manage alert state, and send notifications."""
         status = "HEALTHY" if result.is_healthy else "UNHEALTHY"
         log_line = (
             f"[{result.service_name}] {status} | "
@@ -104,7 +106,7 @@ class ProbeEngine:
         logger.info(log_line)
         self._log_buffer.append(log_line)
 
-        # Alert state tracking (only if threshold > 0)
+        # Alert state machine (only if threshold > 0)
         service = result.service_name
         if alert_threshold > 0:
             if not result.is_healthy:
@@ -114,13 +116,29 @@ class ProbeEngine:
                 ] == alert_threshold and not self._alerted_state.get(service, False):
                     self._alerted_state[service] = True
                     logger.warning(
-                        f"🔔 ALERT: '{service}' has failed "
+                        f"🚨 ALERT TRIGGERED: '{service}' failed "
                         f"{alert_threshold} consecutive checks"
+                    )
+                    # Fire notification in background — don't block the engine
+                    asyncio.create_task(
+                        self._alert_manager.send_notification(
+                            title=f"🔴 DOWN: {service}",
+                            body=f"{service} is unreachable at {result.service_name}. "
+                            f"Error: {result.error_message or 'Unknown'}",
+                        )
                     )
             else:
                 if self._alerted_state.get(service, False):
                     self._alerted_state[service] = False
                     logger.info(f"✅ RECOVERED: '{service}' is healthy again")
+                    # Fire recovery notification in background
+                    asyncio.create_task(
+                        self._alert_manager.send_notification(
+                            title=f"🟢 RECOVERED: {service}",
+                            body=f"{service} is back online. "
+                            f"Latency: {result.latency_ms}ms",
+                        )
+                    )
                 self._failure_counts[service] = 0
 
         is_alerted = self._alerted_state.get(service, False)

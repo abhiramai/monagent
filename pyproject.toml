@@ -15,6 +15,7 @@ dependencies = [
     "rich>=14.3.3",
     "textual>=8.2.3",
     "apprise>=1.8.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.optional-dependencies]

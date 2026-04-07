@@ -2,8 +2,13 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 import apprise
 from loguru import logger
+
+# Load .env before reading environment variables
+load_dotenv()
 
 ALERT_LOG = Path("data") / "alerts.log"
 

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Generator
 
 from loguru import logger
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
 DB_PATH = Path("data") / "monagent.db"
@@ -25,7 +26,33 @@ def get_session() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Create all tables and log success."""
+    """Create all tables and apply any pending column migrations."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(_engine)
+
+    # Auto-migrate: add missing columns to existing tables
+    _migrate_columns()
+
     logger.info(f"Database initialized at {DB_PATH}")
+
+
+def _migrate_columns() -> None:
+    """
+    Check for missing columns on the service_config table
+    and add them via ALTER TABLE. Safe for existing databases.
+    """
+    migrations = [
+        (
+            "probe_type",
+            "ALTER TABLE service_config ADD COLUMN probe_type VARCHAR DEFAULT 'http'",
+        ),
+    ]
+
+    with Session(_engine) as session:
+        for col_name, alter_sql in migrations:
+            try:
+                session.exec(text(f"SELECT {col_name} FROM service_config LIMIT 1"))
+            except Exception:
+                logger.info(f"Migrating: adding column '{col_name}'")
+                session.exec(text(alter_sql))
+                session.commit()

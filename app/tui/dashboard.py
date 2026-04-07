@@ -47,12 +47,21 @@ class ServiceRow(Static):
         }
     """
 
+    scroll_offset: reactive[int] = reactive(0)
+
     def __init__(self, probe_type: str, name: str, url: str) -> None:
         super().__init__()
         self.probe_type = probe_type
         self.service_name = name
         self.url = url
         self._result: CheckResult | None = None
+
+    def on_mount(self) -> None:
+        if len(self.url) > COL_TARGET:
+            self.set_interval(0.2, self._tick_scroll)
+
+    def _tick_scroll(self) -> None:
+        self.scroll_offset += 1
 
     def update_data(self, result: CheckResult) -> None:
         self._result = result
@@ -63,11 +72,9 @@ class ServiceRow(Static):
         r = self._result
 
         probe_display = (
-            f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
-            if self.probe_type == "http"
-            else f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
+            f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
             if self.probe_type == "tcp"
-            else f"{'':<{COL_PROBE}}"
+            else f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
         )
 
         resp = str(r.status_code) if r.status_code else "ERR"
@@ -78,11 +85,15 @@ class ServiceRow(Static):
         else:
             badge = "[white on #cc2222] UNHEALTHY[/]"
 
-        url_display = (
-            self.url
-            if len(self.url) <= COL_TARGET
-            else self.url[: COL_TARGET - 1] + "…"
-        )
+        if len(self.url) <= COL_TARGET:
+            url_display = self.url
+        else:
+            looped = self.url + " | "
+            offset = self.scroll_offset % len(looped)
+            window = (looped + looped)[: offset + COL_TARGET][
+                offset : offset + COL_TARGET
+            ]
+            url_display = window
 
         self.update(
             f"{probe_display}"

@@ -65,6 +65,8 @@ class ServiceRow(Static):
         probe_display = (
             f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
             if self.probe_type == "http"
+            else f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
+            if self.probe_type == "tcp"
             else f"{'':<{COL_PROBE}}"
         )
 

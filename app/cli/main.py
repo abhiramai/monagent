@@ -10,6 +10,7 @@ from app.core.db import get_engine, init_db
 from app.core.engine import ProbeEngine
 from app.models.check_result import ServiceConfig
 from app.probes.http import HttpProbe
+from app.probes.tcp import TcpProbe
 from app.tui.dashboard import DashboardApp
 
 app = typer.Typer(
@@ -24,16 +25,24 @@ console = Console()
 @app.command()
 def add(
     name: str = typer.Option(..., help="Service name (e.g. 'immich')"),
-    url: str = typer.Option(..., help="Health check URL"),
+    url: str = typer.Option(..., help="Health check URL or host:port for TCP"),
+    type: str = typer.Option("http", help="Probe type: http or tcp"),
     interval: int = typer.Option(30, help="Check interval in seconds"),
     timeout: int = typer.Option(10, help="Request timeout in seconds"),
 ) -> None:
     """Register a new service to monitor."""
     init_db()
 
+    if type not in ("http", "tcp"):
+        console.print(
+            f"[bold red]Error:[/] Invalid type '{type}'. Must be 'http' or 'tcp'."
+        )
+        raise typer.Exit(1)
+
     config = ServiceConfig(
         name=name,
         target_url=url,
+        probe_type=type,
         interval_seconds=interval,
         timeout_seconds=timeout,
     )
@@ -51,7 +60,7 @@ def add(
             raise typer.Exit(1)
 
     console.print(
-        f"[green]✓[/green] Added '[bold cyan]{name}[/bold cyan]' monitoring {url} (every {interval}s)"
+        f"[green]✓[/green] Added '[bold cyan]{name}[/bold cyan]' ({type}) monitoring {url} (every {interval}s)"
     )
 
 
@@ -85,15 +94,22 @@ def delete(
 def update(
     name: str = typer.Option(..., help="Service name to update"),
     url: str | None = typer.Option(None, help="New health check URL"),
+    type: str | None = typer.Option(None, help="New probe type: http or tcp"),
     interval: int | None = typer.Option(None, help="New check interval in seconds"),
     timeout: int | None = typer.Option(None, help="New request timeout in seconds"),
 ) -> None:
     """Update an existing service's configuration."""
     init_db()
 
-    if not any([url, interval, timeout]):
+    if not any([url, type, interval, timeout]):
         console.print(
-            "[bold red]Error:[/] Provide at least one field to update (--url, --interval, or --timeout)."
+            "[bold red]Error:[/] Provide at least one field to update (--url, --type, --interval, or --timeout)."
+        )
+        raise typer.Exit(1)
+
+    if type is not None and type not in ("http", "tcp"):
+        console.print(
+            f"[bold red]Error:[/] Invalid type '{type}'. Must be 'http' or 'tcp'."
         )
         raise typer.Exit(1)
 
@@ -108,6 +124,8 @@ def update(
 
         if url is not None:
             config.target_url = url
+        if type is not None:
+            config.probe_type = type
         if interval is not None:
             config.interval_seconds = interval
         if timeout is not None:
@@ -141,6 +159,7 @@ def list_services() -> None:
     )
 
     table.add_column("ID", justify="right", style="dim")
+    table.add_column("Type", justify="center")
     table.add_column("Name", style="bold cyan")
     table.add_column("Target URL", style="green")
     table.add_column("Interval (s)", justify="right")
@@ -149,6 +168,7 @@ def list_services() -> None:
     for c in configs:
         table.add_row(
             str(c.id),
+            c.probe_type.upper(),
             c.name,
             c.target_url,
             str(c.interval_seconds),
@@ -172,8 +192,13 @@ def run() -> None:
         )
         raise typer.Exit(1)
 
-    services = [{"type": "http", "name": c.name, "url": c.target_url} for c in configs]
-    probes = [HttpProbe(config=c) for c in configs]
+    services = [
+        {"type": c.probe_type, "name": c.name, "url": c.target_url} for c in configs
+    ]
+    probes = [
+        HttpProbe(config=c) if c.probe_type == "http" else TcpProbe(config=c)
+        for c in configs
+    ]
 
     async def _run_with_tui() -> None:
         from loguru import logger

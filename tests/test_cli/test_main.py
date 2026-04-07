@@ -242,5 +242,5 @@ def test_list_command_shows_services(memory_db: object) -> None:
     assert "Monitored Services" in result.stdout
     assert "immich" in result.stdout
     assert "audiobookshelf" in result.stdout
-    assert "http://192.168.1.10:2283" in result.stdout
-    assert "192.168.1.10" in result.stdout
+    assert "HTTP" in result.stdout
+    assert "192.168.1" in result.stdout

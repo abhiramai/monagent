@@ -30,5 +30,6 @@ class ServiceConfig(SQLModel, table=True):
     id: Optional[int] = SQLField(default=None, primary_key=True)
     name: str = SQLField(index=True, unique=True)
     target_url: str
+    probe_type: str = SQLField(default="http")
     interval_seconds: int = SQLField(ge=1)
     timeout_seconds: int = SQLField(default=10, ge=1)

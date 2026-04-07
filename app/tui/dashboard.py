@@ -75,7 +75,11 @@ class ServiceRow(Static):
             self.set_interval(0.2, self._tick_scroll)
 
     def _tick_scroll(self) -> None:
-        self.scroll_offset += 1
+        padded = self.url + "   |   "
+        if self.scroll_offset >= len(padded):
+            self.scroll_offset = 0
+        else:
+            self.scroll_offset += 1
 
     def update_data(self, result: CheckResult, alerted: bool = False) -> None:
         self._result = result
@@ -106,12 +110,9 @@ class ServiceRow(Static):
         if len(self.url) <= COL_TARGET:
             url_display = self.url
         else:
-            looped = self.url + " | "
-            offset = self.scroll_offset % len(looped)
-            window = (looped + looped)[: offset + COL_TARGET][
-                offset : offset + COL_TARGET
-            ]
-            url_display = window
+            padded = self.url + "   |   "
+            offset = self.scroll_offset % len(padded)
+            url_display = (padded + padded)[offset : offset + COL_TARGET]
 
         # Alert column: empty if no threshold, green bell if monitoring, red siren if alerted
         if self.alert_threshold == 0:

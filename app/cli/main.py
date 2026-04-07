@@ -207,7 +207,13 @@ def run() -> None:
         raise typer.Exit(1)
 
     services = [
-        {"type": c.probe_type, "name": c.name, "url": c.target_url} for c in configs
+        {
+            "type": c.probe_type,
+            "name": c.name,
+            "url": c.target_url,
+            "alert_threshold": c.alert_threshold,
+        }
+        for c in configs
     ]
     probes = [
         HttpProbe(config=c) if c.probe_type == "http" else TcpProbe(config=c)

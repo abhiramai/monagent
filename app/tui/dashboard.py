@@ -37,7 +37,7 @@ HEADER_FMT = (
     f"[bold #00ffff]{'RESP':<{COL_RESP}}[/]"
     f"[bold #00ffff]{'LATENCY':<{COL_LATENCY}}[/]"
     f"[bold #00ffff]{'STATUS':<{COL_STATUS}}[/]"
-    f"[bold #00ffff]{'!':<{COL_ALERT}}[/]"
+    f"[bold #00ffff]{'🔔':<{COL_ALERT}}[/]"
 )
 
 SEPARATOR = "[dim #333333]" + "─" * TOTAL_WIDTH + "[/]"
@@ -59,11 +59,14 @@ class ServiceRow(Static):
 
     scroll_offset: reactive[int] = reactive(0)
 
-    def __init__(self, probe_type: str, name: str, url: str) -> None:
+    def __init__(
+        self, probe_type: str, name: str, url: str, alert_threshold: int = 0
+    ) -> None:
         super().__init__()
         self.probe_type = probe_type
         self.service_name = name
         self.url = url
+        self.alert_threshold = alert_threshold
         self._result: CheckResult | None = None
         self._alerted = False
 
@@ -110,7 +113,13 @@ class ServiceRow(Static):
             ]
             url_display = window
 
-        alert_display = "[bold yellow]🔔[/]" if self._alerted else "[dim].[/]"
+        # Alert column: empty if no threshold, green bell if monitoring, red siren if alerted
+        if self.alert_threshold == 0:
+            alert_display = ""
+        elif self._alerted:
+            alert_display = "[bold red]🚨[/]"
+        else:
+            alert_display = "[bold green]🔔[/]"
 
         self.update(
             f"{probe_display}"
@@ -197,6 +206,7 @@ class DashboardApp(App[None]):
                     probe_type=svc["type"],
                     name=svc["name"],
                     url=svc["url"],
+                    alert_threshold=svc.get("alert_threshold", 0),
                 )
                 self._rows[svc["name"]] = row
                 yield row

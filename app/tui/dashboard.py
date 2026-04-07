@@ -77,7 +77,10 @@ class ServiceRow(Static):
             else f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
         )
 
-        resp = str(r.status_code) if r.status_code else "ERR"
+        if self.probe_type == "tcp":
+            resp = "OPEN" if r.is_healthy else "CLOSED"
+        else:
+            resp = str(r.status_code) if r.status_code else "ERR"
         lat = f"{r.latency_ms:.1f}ms"
 
         if r.is_healthy:

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from textual.app import App, ComposeResult
@@ -60,13 +60,19 @@ class ServiceRow(Static):
     scroll_offset: reactive[int] = reactive(0)
 
     def __init__(
-        self, probe_type: str, name: str, url: str, alert_threshold: int = 0
+        self,
+        probe_type: str,
+        name: str,
+        url: str,
+        alert_threshold: int = 0,
+        last_seen: datetime | None = None,
     ) -> None:
         super().__init__()
         self.probe_type = probe_type
         self.service_name = name
         self.url = url
         self.alert_threshold = alert_threshold
+        self.last_seen = last_seen
         self._result: CheckResult | None = None
         self._alerted = False
 
@@ -91,12 +97,16 @@ class ServiceRow(Static):
         r = self._result
 
         probe_display = (
-            f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
+            f"[dim]💓 HEARTBEAT[/]{'': <{COL_PROBE - 10}}"
+            if self.probe_type == "heartbeat"
+            else f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
             if self.probe_type == "tcp"
             else f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
         )
 
-        if self.probe_type == "tcp":
+        if self.probe_type == "heartbeat":
+            resp = "THUMP" if r.is_healthy else "STALE"
+        elif self.probe_type == "tcp":
             resp = "OPEN" if r.is_healthy else "CLOSED"
         else:
             resp = str(r.status_code) if r.status_code else "ERR"
@@ -107,7 +117,15 @@ class ServiceRow(Static):
         else:
             badge = "[white on #cc2222] UNHEALTHY[/]"
 
-        if len(self.url) <= COL_TARGET:
+        if self.probe_type == "heartbeat":
+            if self.last_seen:
+                delta = datetime.now(timezone.utc) - self.last_seen.replace(
+                    tzinfo=timezone.utc
+                )
+                url_display = f"Last seen: {delta.total_seconds():.0f}s ago"
+            else:
+                url_display = "Never seen"
+        elif len(self.url) <= COL_TARGET:
             url_display = self.url
         else:
             padded = self.url + "   |   "
@@ -208,6 +226,7 @@ class DashboardApp(App[None]):
                     name=svc["name"],
                     url=svc["url"],
                     alert_threshold=svc.get("alert_threshold", 0),
+                    last_seen=svc.get("last_seen"),
                 )
                 self._rows[svc["name"]] = row
                 yield row
@@ -228,6 +247,10 @@ class DashboardApp(App[None]):
         self.call_next(self._update_row, result, alerted)
 
     def _update_row(self, result: CheckResult, alerted: bool = False) -> None:
+        if result.service_name == "__sync__":
+            self._sync_rows()
+            return
+
         if result.service_name in self._rows:
             row = self._rows[result.service_name]
             row.update_data(result, alerted)
@@ -236,6 +259,21 @@ class DashboardApp(App[None]):
                 row.display = False
             else:
                 row.display = True
+
+    def _sync_rows(self) -> None:
+        """Add any newly discovered services to the dashboard."""
+        container = self.query_one("#row-container", VerticalScroll)
+        for svc in self._engine._probes:
+            if svc.config.name not in self._rows:
+                row = ServiceRow(
+                    probe_type=svc.config.probe_type,
+                    name=svc.config.name,
+                    url=svc.config.target_url,
+                    alert_threshold=svc.config.alert_threshold,
+                    last_seen=svc.config.last_seen,
+                )
+                self._rows[svc.config.name] = row
+                container.mount(row)
 
     def action_toggle_healthy(self) -> None:
         self.hide_healthy = not self.hide_healthy

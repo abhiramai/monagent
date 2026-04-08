@@ -11,6 +11,7 @@ from app.core.engine import ProbeEngine
 from app.models.check_result import ServiceConfig
 from app.probes.http import HttpProbe
 from app.probes.tcp import TcpProbe
+from app.probes.heartbeat import HeartbeatProbe
 from app.tui.dashboard import DashboardApp
 
 app = typer.Typer(
@@ -36,9 +37,9 @@ def add(
     """Register a new service to monitor."""
     init_db()
 
-    if type not in ("http", "tcp"):
+    if type not in ("http", "tcp", "heartbeat"):
         console.print(
-            f"[bold red]Error:[/] Invalid type '{type}'. Must be 'http' or 'tcp'."
+            f"[bold red]Error:[/] Invalid type '{type}'. Must be 'http', 'tcp', or 'heartbeat'."
         )
         raise typer.Exit(1)
 
@@ -64,7 +65,7 @@ def add(
             raise typer.Exit(1)
 
     console.print(
-        f"[green]✓[/green] Added '[bold cyan]{name}[/bold cyan]' ({type}) monitoring {url} (every {interval}s)"
+        f"[green]OK[/green] Added '[bold cyan]{name}[/bold cyan]' ({type}) monitoring {url} (every {interval}s)"
     )
 
 
@@ -91,7 +92,7 @@ def delete(
         session.delete(config)
         session.commit()
 
-    console.print(f"[green]✓[/green] Deleted '[bold cyan]{name}[/bold cyan]'.")
+    console.print(f"[green]OK[/green] Deleted '[bold cyan]{name}[/bold cyan]'.")
 
 
 @app.command()
@@ -143,7 +144,7 @@ def update(
         session.add(config)
         session.commit()
 
-    console.print(f"[green]✓[/green] Updated '[bold cyan]{name}[/bold cyan]'.")
+    console.print(f"[green]OK[/green] Updated '[bold cyan]{name}[/bold cyan]'.")
 
 
 @app.command()
@@ -192,6 +193,46 @@ def list_services() -> None:
     console.print(table)
 
 
+async def _run_with_tui(probes: list, services: list) -> None:
+    from loguru import logger
+    import uvicorn
+    from app.api.webhook import app as webhook_app
+
+    logger.remove()
+
+    engine = ProbeEngine(probes=probes)
+    dashboard = DashboardApp(engine=engine, services=services)
+
+    config = uvicorn.Config(
+        webhook_app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="warning",
+        loop="asyncio",
+        lifespan="off",
+    )
+    server = uvicorn.Server(config)
+
+    tui_task = asyncio.create_task(dashboard.run_async())
+    api_task = asyncio.create_task(server.serve())
+    engine_task = asyncio.create_task(engine.start())
+
+    # Wait for the TUI to exit, then gracefully shut down other tasks
+    await tui_task
+
+    logger.info("Shutdown triggered from TUI")
+    server.should_exit = True
+    await engine.stop()
+
+    api_task.cancel()
+    engine_task.cancel()
+    try:
+        await api_task
+        await engine_task
+    except asyncio.CancelledError:
+        pass
+
+
 @app.command()
 def run() -> None:
     """Launch the Zenith Dashboard TUI and start monitoring."""
@@ -212,41 +253,20 @@ def run() -> None:
             "name": c.name,
             "url": c.target_url,
             "alert_threshold": c.alert_threshold,
+            "last_seen": c.last_seen,
         }
         for c in configs
     ]
-    probes = [
-        HttpProbe(config=c) if c.probe_type == "http" else TcpProbe(config=c)
-        for c in configs
-    ]
+    probes = []
+    for c in configs:
+        if c.probe_type == "http":
+            probes.append(HttpProbe(config=c))
+        elif c.probe_type == "tcp":
+            probes.append(TcpProbe(config=c))
+        elif c.probe_type == "heartbeat":
+            probes.append(HeartbeatProbe(config=c))
 
-    async def _run_with_tui() -> None:
-        from loguru import logger
-
-        logger.remove()
-
-        engine = ProbeEngine(probes=probes)
-
-        async def _start_engine() -> None:
-            try:
-                await engine.start()
-            finally:
-                await engine.stop()
-
-        dashboard = DashboardApp(
-            engine=engine,
-            services=services,
-        )
-
-        engine_task = asyncio.create_task(_start_engine())
-        await dashboard.run_async()
-        engine_task.cancel()
-        try:
-            await engine_task
-        except asyncio.CancelledError:
-            pass
-
-    asyncio.run(_run_with_tui())
+    asyncio.run(_run_with_tui(probes, services))
 
 
 if __name__ == "__main__":

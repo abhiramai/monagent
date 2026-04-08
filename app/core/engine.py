@@ -32,6 +32,56 @@ class ProbeEngine:
         self._alerted_state: dict[str, bool] = {}
         self._alert_manager = AlertManager()
 
+    def sync_probes(self, configs: Sequence[object]) -> None:
+        """
+        Compare the current probes with the given configs and add any new ones.
+        """
+        new_probes = []
+        current_probe_names = {p.config.name for p in self._probes}
+
+        for config in configs:
+            if config.name not in current_probe_names:
+                logger.info(f"Discovered new service: '{config.name}'")
+                new_probe = self._create_probe(config)
+                new_probes.append(new_probe)
+                self._probes.append(new_probe)
+
+        if new_probes:
+            self._tasks.extend(
+                [
+                    asyncio.create_task(self._run_probe(probe), name=probe.config.name)
+                    for probe in new_probes
+                ]
+            )
+            if self._result_callback:
+                # This is a bit of a hack, but it forces the TUI to re-render
+                # with the new services.
+                from app.models.check_result import CheckResult
+
+                self._result_callback(
+                    CheckResult(
+                        service_name="__sync__",
+                        is_healthy=True,
+                        latency_ms=0,
+                        timestamp=datetime.now(timezone.utc),
+                    ),
+                    False,
+                )
+
+    def _create_probe(self, config: object) -> BaseProbe:
+        from app.probes.http import HttpProbe
+        from app.probes.tcp import TcpProbe
+        from app.probes.heartbeat import HeartbeatProbe
+
+        if config.probe_type == "http":
+            return HttpProbe(config=config)
+        elif config.probe_type == "tcp":
+            return TcpProbe(config=config)
+        elif config.probe_type == "heartbeat":
+            return HeartbeatProbe(config=config)
+        else:
+            raise ValueError(f"Unknown probe type: {config.probe_type}")
+
     @property
     def log_buffer(self) -> list[str]:
         return list(self._log_buffer)
@@ -52,8 +102,20 @@ class ProbeEngine:
             asyncio.create_task(self._run_probe(probe), name=probe.config.name)
             for probe in self._probes
         ]
+        self._tasks.append(asyncio.create_task(self._sync_loop(), name="_sync_loop"))
 
         await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    async def _sync_loop(self) -> None:
+        from app.core.db import get_engine
+        from app.models.check_result import ServiceConfig
+        from sqlmodel import Session, select
+
+        while True:
+            await asyncio.sleep(10)
+            with Session(get_engine()) as session:
+                configs = session.exec(select(ServiceConfig)).all()
+            self.sync_probes(configs)
 
     async def stop(self) -> None:
         """Cancel all running probe tasks and close the master client."""

@@ -50,6 +50,10 @@ def _migrate_columns() -> None:
             "alert_threshold",
             "ALTER TABLE service_config ADD COLUMN alert_threshold INTEGER DEFAULT 0",
         ),
+        (
+            "last_seen",
+            "ALTER TABLE service_config ADD COLUMN last_seen DATETIME",
+        ),
     ]
 
     with Session(_engine) as session:

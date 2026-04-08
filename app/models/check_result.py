@@ -34,3 +34,4 @@ class ServiceConfig(SQLModel, table=True):
     interval_seconds: int = SQLField(ge=1)
     timeout_seconds: int = SQLField(default=10, ge=1)
     alert_threshold: int = SQLField(default=0)
+    last_seen: Optional[datetime] = SQLField(default=None)

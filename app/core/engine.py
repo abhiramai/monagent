@@ -35,9 +35,11 @@ class ProbeEngine:
     def sync_probes(self, configs: Sequence[object]) -> None:
         """
         Compare the current probes with the given configs and add any new ones.
+        Also updates existing probes if their config changed (e.g., alert_threshold).
         """
         new_probes = []
         current_probe_names = {p.config.name for p in self._probes}
+        config_map = {c.name: c for c in configs}
 
         for config in configs:
             if config.name not in current_probe_names:
@@ -45,6 +47,19 @@ class ProbeEngine:
                 new_probe = self._create_probe(config)
                 new_probes.append(new_probe)
                 self._probes.append(new_probe)
+            else:
+                existing = next(
+                    (p for p in self._probes if p.config.name == config.name), None
+                )
+                if (
+                    existing
+                    and existing.config.alert_threshold != config.alert_threshold
+                ):
+                    logger.info(
+                        f"Updating alert_threshold for '{config.name}' "
+                        f"from {existing.config.alert_threshold} to {config.alert_threshold}"
+                    )
+                    existing.config.alert_threshold = config.alert_threshold
 
         if new_probes:
             self._tasks.extend(
@@ -54,8 +69,6 @@ class ProbeEngine:
                 ]
             )
             if self._result_callback:
-                # This is a bit of a hack, but it forces the TUI to re-render
-                # with the new services.
                 from app.models.check_result import CheckResult
 
                 self._result_callback(
@@ -112,7 +125,7 @@ class ProbeEngine:
         from sqlmodel import Session, select
 
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(2)
             with Session(get_engine()) as session:
                 configs = session.exec(select(ServiceConfig)).all()
             self.sync_probes(configs)
@@ -144,7 +157,12 @@ class ProbeEngine:
         while True:
             try:
                 result = await probe.run(client=self._client)
-                await self._on_result(result, probe.config.alert_threshold)
+                threshold = getattr(probe, "alert_threshold", None)
+                if threshold is not None and callable(threshold):
+                    threshold = threshold()
+                elif threshold is None:
+                    threshold = probe.config.alert_threshold
+                await self._on_result(result, threshold)
             except asyncio.CancelledError:
                 logger.info(f"Probe '{probe.config.name}' cancelled")
                 raise

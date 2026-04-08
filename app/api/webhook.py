@@ -45,6 +45,8 @@ async def heartbeat_webhook(request: Request) -> JSONResponse:
             config.last_seen = now
             if payload.get("interval_seconds"):
                 config.interval_seconds = int(payload["interval_seconds"])
+            if "alert_threshold" in payload:
+                config.alert_threshold = int(payload["alert_threshold"])
             session.add(config)
             session.commit()
             return JSONResponse({"status": "updated", "service": service_name})
@@ -55,6 +57,7 @@ async def heartbeat_webhook(request: Request) -> JSONResponse:
                 target_url="heartbeat",
                 probe_type="heartbeat",
                 interval_seconds=int(payload.get("interval_seconds", 3600)),
+                alert_threshold=int(payload.get("alert_threshold", 0)),
                 last_seen=now,
             )
             session.add(new_config)

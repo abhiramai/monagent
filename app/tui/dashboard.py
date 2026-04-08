@@ -263,6 +263,7 @@ class DashboardApp(App[None]):
     def _sync_rows(self) -> None:
         """Add any newly discovered services to the dashboard."""
         container = self.query_one("#row-container", VerticalScroll)
+        new_rows = []
         for svc in self._engine._probes:
             if svc.config.name not in self._rows:
                 row = ServiceRow(
@@ -273,7 +274,10 @@ class DashboardApp(App[None]):
                     last_seen=svc.config.last_seen,
                 )
                 self._rows[svc.config.name] = row
-                container.mount(row)
+                new_rows.append(row)
+
+        if new_rows:
+            container.mount_all(new_rows)
 
     def action_toggle_healthy(self) -> None:
         self.hide_healthy = not self.hide_healthy

@@ -51,3 +51,12 @@ class HeartbeatProbe(BaseProbe):
                 return False, None
 
             return True, None
+
+    @property
+    def alert_threshold(self) -> int:
+        """Fetch alert_threshold from DB for alert state machine."""
+        with Session(get_engine()) as session:
+            config = session.exec(
+                select(ServiceConfig).where(ServiceConfig.name == self._service_name)
+            ).first()
+            return config.alert_threshold if config else 0

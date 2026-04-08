@@ -2,21 +2,20 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlmodel import Field as SQLField
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Field as SQLField
 
 
 class CheckResult(BaseModel):
     """The atomic unit returned by every probe after execution."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+    model_config = ConfigDict(extra="allow")
     service_name: str
     is_healthy: bool
     latency_ms: float
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status_code: Optional[int] = None
     error_message: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
 
 
 class ServiceConfig(SQLModel, table=True):

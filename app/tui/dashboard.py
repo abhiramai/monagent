@@ -90,6 +90,8 @@ class ServiceRow(Static):
     def update_data(self, result: CheckResult, alerted: bool = False) -> None:
         self._result = result
         self._alerted = alerted
+        if result.metadata.get("last_seen"):
+            self.last_seen = result.metadata["last_seen"]
         self._refresh()
 
     def _refresh(self) -> None:

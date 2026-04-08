@@ -43,6 +43,8 @@ class HeartbeatProbe(BaseProbe):
             self.config.interval_seconds = config.interval_seconds
             self.config.alert_threshold = config.alert_threshold
 
+            self._last_seen_metadata = {"last_seen": config.last_seen}
+
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             time_since_last_seen = now - config.last_seen.replace(tzinfo=None)
             is_stale = time_since_last_seen.total_seconds() > config.interval_seconds

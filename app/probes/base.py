@@ -60,4 +60,5 @@ class BaseProbe(ABC):
             latency_ms=round(latency, 2),
             status_code=status_code,
             error_message=error_msg,
+            metadata=getattr(self, "_last_seen_metadata", {}),
         )

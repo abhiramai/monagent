@@ -238,6 +238,7 @@ class DashboardApp(App[None]):
         yield Static(SEPARATOR, id="column-separator")
 
         with VerticalScroll(id="row-container"):
+            existing_names = set()
             for svc in self._services:
                 row = ServiceRow(
                     probe_type=svc["type"],
@@ -247,7 +248,20 @@ class DashboardApp(App[None]):
                     last_seen=svc.get("last_seen"),
                 )
                 self._rows[svc["name"]] = row
+                existing_names.add(svc["name"])
                 yield row
+
+            for probe in self._engine._probes:
+                if probe.config.name not in existing_names:
+                    row = ServiceRow(
+                        probe_type=probe.config.probe_type,
+                        name=probe.config.name,
+                        url=probe.config.target_url,
+                        alert_threshold=probe.config.alert_threshold,
+                        last_seen=probe.config.last_seen,
+                    )
+                    self._rows[probe.config.name] = row
+                    yield row
 
         yield Footer()
 
@@ -255,22 +269,6 @@ class DashboardApp(App[None]):
         self.set_interval(1, self._update_clock)
         self._update_clock()
         self._engine._result_callback = self.post_result
-        self._mount_all_rows()
-
-    def _mount_all_rows(self) -> None:
-        container = self.query_one("#row-container", VerticalScroll)
-        for probe in self._engine._probes:
-            if probe.config.name not in self._rows:
-                row = ServiceRow(
-                    probe_type=probe.config.probe_type,
-                    name=probe.config.name,
-                    url=probe.config.target_url,
-                    alert_threshold=probe.config.alert_threshold,
-                    last_seen=probe.config.last_seen,
-                )
-                self._rows[probe.config.name] = row
-        if self._rows:
-            container.mount_all(list(self._rows.values()))
 
     def _update_clock(self) -> None:
         now = datetime.now(AEST).strftime("%H:%M:%S AEST")

@@ -93,7 +93,25 @@ class ServiceRow(Static):
         self._refresh()
 
     def _refresh(self) -> None:
-        assert self._result is not None
+        if self._result is None:
+            probe_display = (
+                f"[dim]💓 HEARTBEAT[/]{'': <{COL_PROBE - 10}}"
+                if self.probe_type == "heartbeat"
+                else f"[dim]🔌 TCP[/]{'': <{COL_PROBE - 6}}"
+                if self.probe_type == "tcp"
+                else f"[dim]🌐 HTTP[/]{'': <{COL_PROBE - 6}}"
+            )
+            url_display = "Pending..."
+            self.update(
+                f"{probe_display}"
+                f"[bold cyan]{self.service_name:<{COL_SERVICE}}[/]"
+                f"[dim green]{url_display:<{COL_TARGET}}[/]"
+                f"[yellow]{'...':<{COL_RESP}}[/]"
+                f"[magenta]{'...':<{COL_LATENCY}}[/]"
+                f"[white on #666666] PENDING [/]"
+            )
+            return
+
         r = self._result
 
         probe_display = (
@@ -237,6 +255,22 @@ class DashboardApp(App[None]):
         self.set_interval(1, self._update_clock)
         self._update_clock()
         self._engine._result_callback = self.post_result
+        self._mount_all_rows()
+
+    def _mount_all_rows(self) -> None:
+        container = self.query_one("#row-container", VerticalScroll)
+        for probe in self._engine._probes:
+            if probe.config.name not in self._rows:
+                row = ServiceRow(
+                    probe_type=probe.config.probe_type,
+                    name=probe.config.name,
+                    url=probe.config.target_url,
+                    alert_threshold=probe.config.alert_threshold,
+                    last_seen=probe.config.last_seen,
+                )
+                self._rows[probe.config.name] = row
+        if self._rows:
+            container.mount_all(list(self._rows.values()))
 
     def _update_clock(self) -> None:
         now = datetime.now(AEST).strftime("%H:%M:%S AEST")

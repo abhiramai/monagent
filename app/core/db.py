@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Generator
 
@@ -5,7 +6,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
-DB_PATH = Path("data") / "monagent.db"
+DB_PATH = Path(os.path.abspath(os.path.join(os.getcwd(), "data", "monagent.db")))
 DB_URL = f"sqlite:///{DB_PATH}"
 
 _engine = create_engine(DB_URL, echo=False)

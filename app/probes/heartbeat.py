@@ -4,7 +4,10 @@ from typing import Optional
 
 import httpx
 from loguru import logger
+from sqlmodel import Session, select
 
+from app.core.db import get_engine
+from app.models.check_result import ServiceConfig
 from app.probes.base import BaseProbe
 
 
@@ -15,25 +18,36 @@ class HeartbeatProbe(BaseProbe):
     timestamp. If `(Now - last_seen) > interval`, it's considered unhealthy.
     """
 
+    def __init__(
+        self, config: ServiceConfig, service_name: Optional[str] = None
+    ) -> None:
+        super().__init__(config)
+        self._service_name = service_name or config.name
+
     async def perform_check(
         self, client: httpx.AsyncClient
     ) -> tuple[bool, Optional[int]]:
-        """Check the age of the last_seen timestamp."""
-        if self.config.last_seen is None:
-            logger.warning(
-                f"[{self.config.name}] Heartbeat probe has never received a check-in."
-            )
-            return False, None
+        """Check the age of the last_seen timestamp from the database."""
+        with Session(get_engine()) as session:
+            config = session.exec(
+                select(ServiceConfig).where(ServiceConfig.name == self._service_name)
+            ).first()
 
-        now = datetime.now(timezone.utc)
-        time_since_last_seen = now - self.config.last_seen
-        is_stale = time_since_last_seen.total_seconds() > self.config.interval_seconds
+            if config is None or config.last_seen is None:
+                logger.warning(
+                    f"[{self._service_name}] Heartbeat probe has never received a check-in."
+                )
+                return False, None
 
-        if is_stale:
-            logger.warning(
-                f"[{self.config.name}] Heartbeat is stale. Last seen "
-                f"{time_since_last_seen.total_seconds():.0f}s ago."
-            )
-            return False, None
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            time_since_last_seen = now - config.last_seen.replace(tzinfo=None)
+            is_stale = time_since_last_seen.total_seconds() > config.interval_seconds
 
-        return True, None
+            if is_stale:
+                logger.warning(
+                    f"[{self._service_name}] Heartbeat is stale. Last seen "
+                    f"{time_since_last_seen.total_seconds():.0f}s ago."
+                )
+                return False, None
+
+            return True, None

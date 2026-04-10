@@ -1,19 +1,13 @@
 import sys
 from pathlib import Path
-from zoneinfo import ZoneInfo
-
-from loguru import logger
-
-AEST = ZoneInfo("Australia/Sydney")
+from app.core.time_utils import to_aest
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 
 def _patch_aest(record: dict) -> None:
-    record["extra"]["aest"] = (
-        record["time"].astimezone(AEST).strftime("%Y-%m-%d %H:%M:%S AEST")
-    )
+    record["extra"]["aest"] = to_aest(record["time"]).strftime("%Y-%m-%d %H:%M:%S AEST")
 
 
 logger.remove()

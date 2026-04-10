@@ -6,6 +6,7 @@ import httpx
 from loguru import logger
 
 from app.core.alerts import AlertManager
+from app.core.db import get_session
 from app.models.check_result import CheckResult
 from app.probes.base import BaseProbe
 
@@ -96,52 +97,79 @@ class ProbeEngine:
 
     async def _on_result(self, result: CheckResult, alert_threshold: int) -> None:
         """Emit result to logger, manage alert state, and send notifications."""
-        status = "HEALTHY" if result.is_healthy else "UNHEALTHY"
-        log_line = (
-            f"[{result.service_name}] {status} | "
-            f"latency={result.latency_ms}ms | "
-            f"code={result.status_code} | "
-            f"error={result.error_message}"
-        )
-        logger.info(log_line)
-        self._log_buffer.append(log_line)
+        # CAPTURE EVERYTHING IMMEDIATELY into local variables
+        srv_name = result.service_name
+        is_h = result.is_healthy
+        lat_ms = result.latency_ms
+        status_c = result.status_code
+        err_msg = result.error_message
+        extra_i = result.extra_info
 
-        # Alert state machine (only if threshold > 0)
-        service = result.service_name
-        if alert_threshold > 0:
-            if not result.is_healthy:
-                self._failure_counts[service] = self._failure_counts.get(service, 0) + 1
-                if self._failure_counts[
-                    service
-                ] == alert_threshold and not self._alerted_state.get(service, False):
-                    self._alerted_state[service] = True
-                    logger.warning(
-                        f"🚨 ALERT TRIGGERED: '{service}' failed "
-                        f"{alert_threshold} consecutive checks"
+        try:
+            status = "HEALTHY" if is_h else "UNHEALTHY"
+            log_line = (
+                f"[{srv_name}] {status} | "
+                f"latency={lat_ms}ms | "
+                f"code={status_c} | "
+                f"error={err_msg}"
+            )
+            logger.info(log_line)
+            self._log_buffer.append(log_line)
+
+            # Alert state machine (using local variables)
+            service = srv_name
+            if alert_threshold > 0:
+                if not is_h:
+                    self._failure_counts[service] = (
+                        self._failure_counts.get(service, 0) + 1
                     )
-                    # Fire notification in background — don't block the engine
-                    asyncio.create_task(
-                        self._alert_manager.send_notification(
-                            title=f"🔴 DOWN: {service}",
-                            body=f"{service} is unreachable at {result.service_name}. "
-                            f"Error: {result.error_message or 'Unknown'}",
+                    if self._failure_counts[
+                        service
+                    ] == alert_threshold and not self._alerted_state.get(
+                        service, False
+                    ):
+                        self._alerted_state[service] = True
+                        logger.warning(
+                            f"🚨 ALERT TRIGGERED: '{service}' failed "
+                            f"{alert_threshold} consecutive checks"
                         )
-                    )
-            else:
-                if self._alerted_state.get(service, False):
-                    self._alerted_state[service] = False
-                    logger.info(f"✅ RECOVERED: '{service}' is healthy again")
-                    # Fire recovery notification in background
-                    asyncio.create_task(
-                        self._alert_manager.send_notification(
-                            title=f"🟢 RECOVERED: {service}",
-                            body=f"{service} is back online. "
-                            f"Latency: {result.latency_ms}ms",
+                        asyncio.create_task(
+                            self._alert_manager.send_notification(
+                                title=f"🔴 DOWN: {service}",
+                                body=f"{service} is unreachable. Error: {err_msg or 'Unknown'}",
+                            )
                         )
-                    )
-                self._failure_counts[service] = 0
+                else:
+                    if self._alerted_state.get(service, False):
+                        self._alerted_state[service] = False
+                        logger.info(f"✅ RECOVERED: '{service}' is healthy again")
+                        asyncio.create_task(
+                            self._alert_manager.send_notification(
+                                title=f"🟢 RECOVERED: {service}",
+                                body=f"{service} is back online. Latency: {lat_ms}ms",
+                            )
+                        )
+                    self._failure_counts[service] = 0
 
-        is_alerted = self._alerted_state.get(service, False)
+            is_alerted = self._alerted_state.get(service, False)
 
-        if self._result_callback is not None:
-            self._result_callback(result, is_alerted)
+            if self._result_callback is not None:
+                # Rebuild CheckResult from local variables for the callback
+                callback_result = CheckResult(
+                    service_name=srv_name,
+                    is_healthy=is_h,
+                    latency_ms=lat_ms,
+                    status_code=status_c,
+                    error_message=err_msg,
+                    extra_info=extra_i,
+                )
+                self._result_callback(callback_result, is_alerted)
+
+            # "Fire and Forget" Save: move the save block to the very end
+            with get_session() as session:
+                session.add(result)  # Use the original 'result' object here
+                session.commit()
+                # Do not touch 'result' after commit
+
+        except Exception:
+            logger.exception(f"Error processing result for service '{srv_name}'")

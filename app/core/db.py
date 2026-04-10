@@ -1,11 +1,14 @@
 from pathlib import Path
+import os
 from typing import Generator
+from contextlib import contextmanager
 
 from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
-DB_PATH = Path("data") / "monagent.db"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "monagent.db"
+DB_PATH = Path(os.path.abspath(DB_PATH))
 DB_URL = f"sqlite:///{DB_PATH}"
 
 _engine = create_engine(DB_URL, echo=False)
@@ -16,6 +19,7 @@ def get_engine() -> object:
     return _engine
 
 
+@contextmanager
 def get_session() -> Generator[Session, None, None]:
     """
     Context-managed session generator.

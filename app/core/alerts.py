@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from app.core.time_utils import format_log_time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -54,7 +54,7 @@ class AlertManager:
     def _log_failure(self, title: str, reason: str) -> None:
         """Write alert failure details to data/alerts.log for inspection."""
         ALERT_LOG.parent.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        ts = format_log_time()
         urls = ", ".join(self._urls) if self._urls else "(none configured)"
         line = f"[{ts}] FAILED: {title} — {reason} — URLs: {urls}\n"
         with open(ALERT_LOG, "a", encoding="utf-8") as f:

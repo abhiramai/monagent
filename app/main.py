@@ -1,11 +1,11 @@
 import uvicorn
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from loguru import logger
 from sqlmodel import select
 from app.core.db import get_session, init_db
-from app.models.check_result import ServiceConfig
+from app.models.check_result import CheckResult, ServiceConfig
 
 # Definitive FastAPI instance
 app = FastAPI(title="monagent API")
@@ -21,9 +21,12 @@ async def health():
 
 
 @app.post("/webhook/heartbeat")
-async def receive_heartbeat(payload: HeartbeatPayload):
+async def receive_heartbeat(request: Request, payload: HeartbeatPayload):
     srv_name = str(payload.service_name)
-    logger.info(f"💓 Heartbeat received for: {srv_name}")
+
+    # Extract client IP address
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info(f"💓 Heartbeat received for: {srv_name} from IP: {client_ip}")
 
     try:
         with get_session() as session:
@@ -39,8 +42,23 @@ async def receive_heartbeat(payload: HeartbeatPayload):
             session.add(config)
             session.commit()
 
-            logger.success(f"✅ Updated {srv_name}")
-            return {"status": "ok"}
+            # Create CheckResult entry with source IP
+            result = CheckResult(
+                service_name=srv_name,
+                is_healthy=True,
+                latency_ms=0.0,
+                status_code=None,
+                error_message=None,
+                extra_info={
+                    "source_ip": client_ip,
+                    "last_seen": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            session.add(result)
+            session.commit()
+
+            logger.success(f"✅ Updated {srv_name} (IP: {client_ip})")
+            return {"status": "ok", "source_ip": client_ip}
     except HTTPException:
         raise
     except Exception as e:

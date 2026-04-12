@@ -14,7 +14,7 @@ class TcpProbe(BaseProbe):
     """
 
     async def perform_check(self, client: object) -> tuple[bool, Optional[int]]:
-        target = self.config.target_url
+        target = self.config.address
 
         if "://" in target:
             target = target.split("://", 1)[1]

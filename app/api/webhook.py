@@ -51,7 +51,7 @@ async def heartbeat(request: Request) -> JSONResponse:
             new_service = ServiceConfig(
                 name=service_name,
                 probe_type="heartbeat",
-                target_url="N/A",  # Not applicable for heartbeats
+                address="N/A",
                 interval_seconds=payload.get("interval_seconds", 60),
                 timeout_seconds=payload.get("timeout_seconds", 30),
                 alert_threshold=payload.get("alert_threshold", 0),

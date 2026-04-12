@@ -28,7 +28,7 @@ class ServiceConfig(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
-    target_url: str
+    address: str
     probe_type: str = Field(default="http")
     interval_seconds: int = Field(ge=1)
     timeout_seconds: int = Field(default=10, ge=1)

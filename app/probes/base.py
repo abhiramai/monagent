@@ -35,17 +35,16 @@ class BaseProbe(ABC):
         """
         # Snapshot vital fields to avoid detached-instance issues later
         service_name = getattr(self.config, "name", None) or "unknown"
-        target_url = getattr(self.config, "target_url", None)
+        address = getattr(self.config, "address", None)
 
         if service_name == "unknown":
-            # Fallback to avoid NULL constraint failure
             logger.error(
                 f"service_name is missing! config={self.config}, "
                 f"config.name={getattr(self.config, 'name', 'MISSING')}. "
                 f"Using placeholder 'unknown'."
             )
 
-        logger.info(f"Running probe: {service_name} on {target_url}")
+        logger.info(f"Running probe: {service_name} on {address}")
 
         start_time = time.perf_counter()
         error_msg: Optional[str] = None

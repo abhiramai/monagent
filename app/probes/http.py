@@ -9,7 +9,7 @@ from app.probes.base import BaseProbe
 class HttpProbe(BaseProbe):
     """
     HTTP health check probe.
-    Performs a GET request against the configured target_url
+    Performs a GET request against the configured address
     and returns health status with the HTTP status code.
     """
 
@@ -17,7 +17,7 @@ class HttpProbe(BaseProbe):
         self, client: httpx.AsyncClient
     ) -> tuple[bool, Optional[int]]:
         try:
-            response = await client.get(self.config.target_url)
+            response = await client.get(self.config.address)
             return response.is_success, response.status_code
         except httpx.ConnectTimeout:
             logger.warning(

@@ -13,17 +13,17 @@ from app.models.check_result import CheckResult, ServiceConfig
 
 # ── Column Width Constants ──────────────────────────────────────────
 COL_PROBE = 12
-COL_SERVICE = 20
-COL_TARGET = 35
+COL_CLIENT = 20
+COL_ADDRESS = 35
 COL_RESP = 10
-COL_LATENCY = 12
-COL_STATUS = 15
+COL_LATENCY = 10
+COL_STATUS = 14
 COL_ALERT = 3
 
 TOTAL_WIDTH = (
     COL_PROBE
-    + COL_SERVICE
-    + COL_TARGET
+    + COL_CLIENT
+    + COL_ADDRESS
     + COL_RESP
     + COL_LATENCY
     + COL_STATUS
@@ -33,8 +33,8 @@ TOTAL_WIDTH = (
 # Pillar 2: NOC Contrast Header
 HEADER_FMT = (
     f"[bold white]{'PROBE':<{COL_PROBE}}[/]"
-    f"[bold white]{'SERVICE':<{COL_SERVICE}}[/]"
-    f"[bold white]{'TARGET':<{COL_TARGET}}[/]"
+    f"[bold white]{'CLIENT':<{COL_CLIENT}}[/]"
+    f"[bold white]{'ADDRESS':<{COL_ADDRESS}}[/]"
     f"[bold white]{'RESP':<{COL_RESP}}[/]"
     f"[bold white]{'LATENCY':<{COL_LATENCY}}[/]"
     f"[bold white]{'STATUS':<{COL_STATUS}}[/]"
@@ -56,7 +56,7 @@ class ServiceRow(Static):
         self._alerted: bool = False
 
     def on_mount(self) -> None:
-        if len(self.config.target_url) > COL_TARGET:
+        if len(self.config.address) > COL_ADDRESS:
             self.set_interval(0.2, self._tick_scroll)
         # Each row polls the DB for its own state
         self.set_interval(1.0, self.poll_database)
@@ -88,7 +88,7 @@ class ServiceRow(Static):
         self._refresh()
 
     def _tick_scroll(self) -> None:
-        padded = self.config.target_url + "   |   "
+        padded = self.config.address + "   |   "
         self.scroll_offset = (self.scroll_offset + 1) % len(padded)
 
     def _refresh(self) -> None:
@@ -101,7 +101,7 @@ class ServiceRow(Static):
                 ).total_seconds() > self.config.interval_seconds
                 is_healthy = not is_stale
             else:
-                is_healthy = False
+                is_healthy = None
         else:
             if self._result:
                 is_healthy = self._result.is_healthy
@@ -113,78 +113,73 @@ class ServiceRow(Static):
             self.config.probe_type, "❓"
         )
         probe_display = f"[dim]{probe_icon} {self.config.probe_type.upper():<{COL_PROBE - len(probe_icon) - 2}}[/]"
-        service_display = f"[bold bright_cyan]{self.config.name:<{COL_SERVICE}}[/]"
+        service_display = f"[bold bright_cyan]{self.config.name:<{COL_CLIENT}}[/]"
 
-        # URL display (possibly scrolling)
+        # Address display (possibly scrolling)
         if self.config.probe_type == "heartbeat":
-            source_ip = "N/A"
+            source_ip = None
             if (
                 self._result
                 and self._result.extra_info
                 and "source_ip" in self._result.extra_info
             ):
-                source_ip = str(self._result.extra_info["source_ip"])
+                source_ip = self._result.extra_info["source_ip"]
             elif self.config.client_ip:
-                source_ip = str(self.config.client_ip)
-            target_display = f"[bold cyan]{source_ip:<{COL_TARGET}}[/]"
+                source_ip = self.config.client_ip
+            if source_ip:
+                ip_str = "IP: " + source_ip
+                address_display = f"[bold cyan]{ip_str:<{COL_ADDRESS}}[/]"
+            else:
+                wait = "[dim][Waiting...][/]"
+                address_display = wait + " " * (COL_ADDRESS - 11)
         else:
-            url_display = self.config.target_url
-            if len(url_display) > COL_TARGET:
+            url_display = self.config.address
+            if len(url_display) > COL_ADDRESS:
                 padded = url_display + "   |   "
                 url_display = (padded + padded)[
-                    self.scroll_offset : self.scroll_offset + COL_TARGET
+                    self.scroll_offset : self.scroll_offset + COL_ADDRESS
                 ]
-            target_display = f"[bold white]{url_display:<{COL_TARGET}}[/]"
+            address_display = f"[bold white]{url_display:<{COL_ADDRESS}}[/]"
 
         # Response and Latency
         if self.config.probe_type == "heartbeat":
             if is_healthy:
+                resp = "THUMP"
+                ttl = ""
                 if self.config.interval_seconds >= 3600 and self.config.last_seen:
-                    seconds_remaining = (
+                    seconds_remaining = int(
                         self.config.interval_seconds
                         - (
                             now_aware() - to_aware(self.config.last_seen)
                         ).total_seconds()
                     )
                     if seconds_remaining > 0:
-                        hours_remaining = int(seconds_remaining // 3600)
-                        minutes_remaining = int((seconds_remaining % 3600) // 60)
-                        if hours_remaining > 0:
-                            resp = f"TTL{hours_remaining}h"
+                        hours = seconds_remaining // 3600
+                        mins = (seconds_remaining % 3600) // 60
+                        if hours > 0:
+                            ttl = f"{hours}h{mins:02d}m"
                         else:
-                            resp = f"TTL{minutes_remaining}m"
+                            ttl = f"{mins}m"
                     else:
-                        resp = "STALE    "
-                else:
-                    resp = "THUMP    "
+                        ttl = "STALE"
+                lat = f"{ttl:<{COL_LATENCY}}" if ttl else " " * COL_LATENCY
             else:
-                resp = "STALE    "
-            lat = " " * COL_LATENCY
+                resp = "STALE"
+                lat = f"{'STALE':<{COL_LATENCY}}"
         elif self.config.probe_type == "tcp":
             resp = "OPEN" if is_healthy else "CLOSED"
-            lat = " " * COL_LATENCY
+            lat = " " * 10
         else:  # http
             resp = (
                 str(self._result.status_code)
                 if self._result and self._result.status_code is not None
                 else "ERR"
             )
-            lat = (
-                f"{self._result.latency_ms:.1f}ms"
-                if self._result
-                else " " * COL_LATENCY
-            )
+            lat = f"{self._result.latency_ms:.1f}ms" if self._result else " " * 10
 
         # 3. Determine Badge and Alert Icon
-        badge_status = (
-            "PENDING"
-            if is_healthy is None
-            else ("HEALTHY" if is_healthy else "UNHEALTHY")
-        )
-        if is_healthy is None:
-            badge = f"[black on #cccc00] {badge_status:>9} [/]"
-            alert_display = ""
-        elif is_healthy:
+        badge_status = "HEALTHY" if is_healthy else "UNHEALTHY"
+        if is_healthy:
             badge = f"[black on #00aa44] {badge_status:>9} [/]"
             alert_display = (
                 "[bold green]🔔[/]" if self.config.alert_threshold > 0 else ""
@@ -197,7 +192,7 @@ class ServiceRow(Static):
         line = (
             f"{probe_display}"
             f"{service_display}"
-            f"{target_display}"
+            f"{address_display}"
             f"[yellow]{resp:<{COL_RESP}}[/]"
             f"[magenta]{lat:<{COL_LATENCY}}[/]"
             f"{badge:<{COL_STATUS}} "
@@ -256,7 +251,7 @@ ServiceRow {
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-bar"):
-            yield Label("monagent 0.1", id="app-title")
+            yield Label("Sydney NOC: Monitored Clients v0.1", id="app-title")
             yield Label("", id="sydney-clock")
         yield Static(HEADER_FMT, id="column-header")
         yield Static(SEPARATOR, id="column-separator")

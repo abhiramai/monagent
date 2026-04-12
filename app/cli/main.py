@@ -1,7 +1,9 @@
 import asyncio
+import json
 import threading
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 import typer
 import uvicorn
@@ -23,9 +25,10 @@ from dotenv import load_dotenv
 
 app = typer.Typer(
     name="monagent",
-    help="monagent: High-Contrast Lab Monitor",
+    help="monagent: High-Contrast Lab Monitor v0.1",
     add_completion=False,
 )
+version = "0.1"
 console = Console()
 load_dotenv()
 
@@ -55,11 +58,12 @@ def add(
 
     config = ServiceConfig(
         name=name,
-        target_url=url,
+        address=url,
         probe_type=type,
         interval_seconds=interval,
         timeout_seconds=timeout,
         alert_threshold=alert_threshold,
+        last_seen=datetime.now(timezone.utc) if type == "heartbeat" else None,
     )
     engine = get_engine()
     with Session(engine) as session:
@@ -118,7 +122,7 @@ def update(
 
         changed = False
         if url is not None:
-            config.target_url = url
+            config.address = url
             changed = True
         if interval is not None:
             config.interval_seconds = interval
@@ -162,27 +166,28 @@ def list_services() -> None:
         )
         return
     table = Table(
-        title="Monitored Services", border_style="blue", header_style="bold magenta"
+        title="Registry: Monitored Clients",
+        border_style="blue",
+        header_style="bold magenta",
     )
     table.add_column("Name", style="bold cyan")
     table.add_column("Type")
-    table.add_column("Target")
-    table.add_column("Client")
+    table.add_column("Address")
+    table.add_column("Client IP")
     table.add_column("Interval")
     table.add_column("Alerts")
     for c in configs:
         alert_display = (
             str(c.alert_threshold) if c.alert_threshold > 0 else "[dim]disabled[/]"
         )
-        # Show client IP for heartbeat probes, target URL for others
         if c.probe_type == "heartbeat":
-            target_display = c.client_ip or "[dim]N/A[/]"
+            address_display = c.client_ip or "[dim]Waiting[/]"
         else:
-            target_display = c.target_url
+            address_display = c.address
         table.add_row(
             c.name,
             c.probe_type.upper(),
-            target_display,
+            address_display,
             str(c.client_ip or ""),
             f"{c.interval_seconds}s",
             alert_display,
@@ -279,6 +284,63 @@ def reset_database() -> None:
     console.print("[bold yellow]Resetting database...[/]")
     reset_db()
     console.print("[bold green]Database reset complete![/]")
+
+
+@app.command("sync")
+def sync(manifest: Path) -> None:
+    """Sync services from a JSON manifest file."""
+    SQLModel.metadata.create_all(get_engine())
+
+    if not manifest.exists():
+        console.print(f"[bold red]Error:[/] File not found: {manifest}")
+        raise typer.Exit(1)
+
+    with open(manifest) as f:
+        data = json.load(f)
+
+    clients = data.get("clients", [])
+    if not clients:
+        console.print("[bold yellow]No clients found in manifest.[/]")
+        return
+
+    engine = get_engine()
+    with Session(engine) as session:
+        synced = 0
+        for client in clients:
+            name = client.get("name")
+            if not name:
+                continue
+
+            existing = session.exec(
+                select(ServiceConfig).where(ServiceConfig.name == name)
+            ).first()
+
+            if existing:
+                existing.address = client.get("address", existing.address)
+                existing.probe_type = client.get("type", existing.probe_type)
+                existing.interval_seconds = client.get(
+                    "interval", existing.interval_seconds
+                )
+                session.add(existing)
+                console.print(f"[yellow]Updated:[/] {name}")
+            else:
+                new_client = ServiceConfig(
+                    name=name,
+                    address=client.get("address", "http://localhost"),
+                    probe_type=client.get("type", "http"),
+                    interval_seconds=client.get("interval", 30),
+                    timeout_seconds=client.get("timeout", 10),
+                    alert_threshold=client.get("alert_threshold", 0),
+                    last_seen=datetime.now(timezone.utc)
+                    if client.get("type") == "heartbeat"
+                    else None,
+                )
+                session.add(new_client)
+                console.print(f"[green]Added:[/] {name}")
+            synced += 1
+
+        session.commit()
+    console.print(f"[bold green]Synced {synced} clients.[/]")
 
 
 def _get_probes() -> list[BaseProbe]:

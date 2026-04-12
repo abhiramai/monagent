@@ -320,6 +320,36 @@ def reset_database() -> None:
     console.print("[bold green]Database reset complete![/]")
 
 
+@app.command("export")
+def export(
+    output_file: Path = typer.Argument("clients.json", help="Output JSON file path."),
+) -> None:
+    """Export current clients to a JSON manifest."""
+    SQLModel.metadata.create_all(get_engine())
+    engine = get_engine()
+    with Session(engine) as session:
+        configs = session.exec(select(ServiceConfig)).all()
+
+    clients = []
+    for c in configs:
+        clients.append(
+            {
+                "name": c.name,
+                "type": c.probe_type,
+                "address": c.address,
+                "interval": c.interval_seconds,
+                "timeout": c.timeout_seconds,
+                "alert_threshold": c.alert_threshold,
+            }
+        )
+
+    output_path = Path(output_file)
+    output_path.write_text(json.dumps({"clients": clients}, indent=2))
+    console.print(
+        f"[bold green]Manifest exported to {output_file} ({len(clients)} clients)[/]"
+    )
+
+
 @app.command("stop")
 def stop() -> None:
     """Stop a running monagent instance."""

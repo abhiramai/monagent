@@ -271,6 +271,16 @@ def dash() -> None:
     asyncio.run(DashboardApp().run_async())
 
 
+@app.command("reset-db")
+def reset_database() -> None:
+    """Delete and recreate the database with fresh schema."""
+    from app.core.db import reset_db
+
+    console.print("[bold yellow]Resetting database...[/]")
+    reset_db()
+    console.print("[bold green]Database reset complete![/]")
+
+
 def _get_probes() -> list[BaseProbe]:
     engine = get_engine()
     with Session(engine) as session:

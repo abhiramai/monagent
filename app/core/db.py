@@ -1,5 +1,5 @@
-from pathlib import Path
 import os
+from pathlib import Path
 from typing import Generator
 from contextlib import contextmanager
 
@@ -7,8 +7,10 @@ from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
+# Keep my HEAD version of DB_PATH definition
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "monagent.db"
 DB_PATH = Path(os.path.abspath(DB_PATH))
+
 DB_URL = f"sqlite:///{DB_PATH}"
 
 _engine = create_engine(DB_URL, echo=False)
@@ -24,8 +26,10 @@ def get_session() -> Generator[Session, None, None]:
     """
     Context-managed session generator.
     Ensures every session is closed after use.
+    expire_on_commit=False prevents DetachedInstanceError.
     """
-    with Session(_engine) as session:
+    # Re-add expire_on_commit=False
+    with Session(_engine, expire_on_commit=False) as session:
         yield session
 
 
@@ -53,6 +57,10 @@ def _migrate_columns() -> None:
         (
             "alert_threshold",
             "ALTER TABLE service_config ADD COLUMN alert_threshold INTEGER DEFAULT 0",
+        ),
+        (
+            "last_seen",
+            "ALTER TABLE service_config ADD COLUMN last_seen DATETIME",
         ),
     ]
 

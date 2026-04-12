@@ -33,20 +33,20 @@ class TcpProbe(BaseProbe):
             )
             writer.close()
             await writer.wait_closed()
-            return True, None
+            return True, 0
         except asyncio.TimeoutError:
             logger.warning(
                 f"[{self.config.name}] TCP connection timed out "
                 f"after {self.config.timeout_seconds}s on {host}:{port}"
             )
-            return False, None
+            return False, 0
         except ConnectionRefusedError:
             logger.warning(
                 f"[{self.config.name}] TCP connection refused on {host}:{port}"
             )
-            return False, None
+            return False, 0
         except OSError as e:
             logger.warning(
                 f"[{self.config.name}] TCP connection failed on {host}:{port}: {e}"
             )
-            return False, None
+            return False, 0

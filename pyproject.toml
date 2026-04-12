@@ -16,6 +16,9 @@ dependencies = [
     "textual>=8.2.3",
     "apprise>=1.8.0",
     "python-dotenv>=1.2.2",
+    "starlette>=1.0.0",
+    "uvicorn>=0.44.0",
+    "python-multipart>=0.0.24",
 ]
 
 [project.optional-dependencies]

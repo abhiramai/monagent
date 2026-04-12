@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from typing import Union
 
 # AEST is UTC+10 (or +11 during Daylight Savings)
 # We can use zoneinfo for automatic handling if installed
@@ -16,13 +17,28 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def now_aware() -> datetime:
+    """Return the current aware UTC datetime (alias for now_utc for clarity)."""
+    return datetime.now(timezone.utc)
+
+
 def to_aest(dt: datetime) -> datetime:
     """Converts a UTC aware datetime to Sydney time for display."""
     return dt.astimezone(SYDNEY_TZ)
 
 
-def to_aware(dt: datetime) -> datetime:
-    """Convert a naive datetime to an aware UTC datetime."""
+def to_aware(dt: Union[datetime, str, None]) -> datetime:
+    """Safely converts a naive datetime OR an ISO string to an aware UTC datetime."""
+    if dt is None:
+        return datetime.now(timezone.utc)
+
+    # If it's a string (from JSON/SQLite), parse it first
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return datetime.now(timezone.utc)
+
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt

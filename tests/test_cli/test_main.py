@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.cli.main import app
+from app.cli.main import app, _run_with_tui
 from app.models.check_result import ServiceConfig
 from typer.testing import CliRunner
 
@@ -90,11 +90,7 @@ def test_delete_command_removes_service(memory_db: object) -> None:
         session.commit()
 
     with patch("app.cli.main.get_engine", return_value=memory_db):
-        result = runner.invoke(
-            app,
-            ["delete", "--name", "to-delete"],
-            input="y\n",
-        )
+        result = runner.invoke(app, ["delete", "--name", "to-delete"], input="y\n")
 
     assert result.exit_code == 0
     assert "Deleted" in result.stdout
@@ -107,10 +103,7 @@ def test_delete_command_removes_service(memory_db: object) -> None:
 def test_delete_command_missing_service(memory_db: object) -> None:
     """Verify 'monagent delete' errors on non-existent service."""
     with patch("app.cli.main.get_engine", return_value=memory_db):
-        result = runner.invoke(
-            app,
-            ["delete", "--name", "nonexistent"],
-        )
+        result = runner.invoke(app, ["delete", "--name", "nonexistent"])
 
     assert result.exit_code == 1
     assert "No service named" in result.stdout
@@ -131,8 +124,7 @@ def test_update_command_changes_url(memory_db: object) -> None:
 
     with patch("app.cli.main.get_engine", return_value=memory_db):
         result = runner.invoke(
-            app,
-            ["update", "--name", "updatable", "--url", "http://new-url:9090"],
+            app, ["update", "--name", "updatable", "--url", "http://new-url:9090"]
         )
 
     assert result.exit_code == 0
@@ -147,23 +139,51 @@ def test_update_command_changes_url(memory_db: object) -> None:
         assert config.interval_seconds == 30  # Unchanged
 
 
-def test_run_command_loads_and_starts_engine(memory_db: object) -> None:
-    """Verify 'monagent run' loads configs and launches the TUI dashboard."""
+@patch("app.cli.main.DashboardApp.run_async", new_callable=AsyncMock)
+@patch("uvicorn.Server.serve", new_callable=AsyncMock)
+@patch("app.core.engine.ProbeEngine.start", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_run_command_graceful_shutdown(
+    mock_engine_start: AsyncMock,
+    mock_uvicorn_serve: AsyncMock,
+    mock_dashboard_run: AsyncMock,
+    memory_db: object,
+) -> None:
+    """Verify 'monagent run' shuts down all tasks gracefully."""
+    from app.cli.main import _run_with_tui
+    from app.probes.http import HttpProbe
+
     with Session(memory_db) as session:
-        session.add(
-            ServiceConfig(
-                name="pre-seeded",
-                target_url="http://localhost:8080",
-                interval_seconds=30,
-            )
+        config = ServiceConfig(
+            name="pre-seeded",
+            target_url="http://localhost:8080",
+            interval_seconds=30,
         )
+        session.add(config)
         session.commit()
+        session.refresh(config)
 
-    with patch("app.cli.main.get_engine", return_value=memory_db):
-        with patch("app.cli.main.DashboardApp.run_async", new_callable=AsyncMock):
-            result = runner.invoke(app, ["run"])
+        services = [
+            {
+                "type": config.probe_type,
+                "name": config.name,
+                "url": config.target_url,
+                "alert_threshold": config.alert_threshold,
+                "last_seen": config.last_seen,
+            }
+        ]
+        probes = [HttpProbe(config=config)]
 
-    assert result.exit_code == 0
+    async def _fake_run_async() -> None:
+        await asyncio.sleep(0.2)
+
+    mock_dashboard_run.side_effect = _fake_run_async
+
+    await _run_with_tui(probes, services)
+
+    mock_engine_start.assert_called_once()
+    mock_uvicorn_serve.assert_called_once()
+    mock_dashboard_run.assert_called_once()
 
 
 @pytest.mark.asyncio

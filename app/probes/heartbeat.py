@@ -1,41 +1,72 @@
-from datetime import datetime
+import asyncio
+from datetime import datetime, timezone
+from typing import Optional
+
 import httpx
+from loguru import logger
 from sqlmodel import Session, select
 
-from app.core.db import get_session
-from app.core.time_utils import now_utc, to_aware
-from app.models.check_result import CheckResult, ServiceConfig
+from app.core.db import get_engine
+from app.models.check_result import ServiceConfig
 from app.probes.base import BaseProbe
 
 
 class HeartbeatProbe(BaseProbe):
-    """A probe that checks for a 'last_seen' timestamp in the database."""
+    """
+    A "dead man's switch" probe. It doesn't make any network calls.
+    It checks if a service has "checked in" by updating its `last_seen`
+    timestamp. If `(Now - last_seen) > interval`, it's considered unhealthy.
+    """
 
-    def __init__(self, config: ServiceConfig) -> None:
+    def __init__(
+        self, config: ServiceConfig, service_name: Optional[str] = None
+    ) -> None:
         super().__init__(config)
-        self.extra_info: dict = {}
+        self._service_name = service_name or config.name
+        self._last_seen_metadata: dict = {}
 
-    async def perform_check(self, client: httpx.AsyncClient) -> tuple[bool, None]:
-        """Check the database for the last_seen timestamp and determine health."""
-        with get_session() as session:
-            db_config = session.get(ServiceConfig, self.config.id)
+    async def perform_check(
+        self, client: httpx.AsyncClient
+    ) -> tuple[bool, Optional[int]]:
+        """Check the age of the last_seen timestamp from the database."""
+        with Session(get_engine()) as session:
+            config = session.exec(
+                select(ServiceConfig).where(ServiceConfig.name == self._service_name)
+            ).first()
 
-        if not db_config or not db_config.last_seen:
-            self.extra_info = {"last_seen": None}
-            return False, None
+            if config is None or config.last_seen is None:
+                logger.warning(
+                    f"[{self._service_name}] Heartbeat probe has never received a check-in."
+                )
+                return False, None
 
-        # Update in-memory config and metadata
-        self.config.last_seen = db_config.last_seen
-        self.extra_info = {"last_seen": db_config.last_seen}
+            self.config.last_seen = config.last_seen
+            self.config.interval_seconds = config.interval_seconds
+            self.config.alert_threshold = config.alert_threshold
 
-        # Perform the stale check using aware datetimes
-        last_seen_aware = to_aware(db_config.last_seen)
-        is_stale = (
-            now_utc() - last_seen_aware
-        ).total_seconds() > self.config.interval_seconds
+            self._last_seen_metadata = {"last_seen": config.last_seen}
 
-        is_healthy = not is_stale
-        return is_healthy, None
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            time_since_last_seen = now - config.last_seen.replace(tzinfo=None)
+            is_stale = time_since_last_seen.total_seconds() > config.interval_seconds
+
+            if is_stale:
+                logger.warning(
+                    f"[{self._service_name}] Heartbeat is stale. Last seen "
+                    f"{time_since_last_seen.total_seconds():.0f}s ago."
+                )
+                return False, None
+
+            return True, None
+
+    @property
+    def alert_threshold(self) -> int:
+        """Fetch alert_threshold from DB for alert state machine."""
+        with Session(get_engine()) as session:
+            config = session.exec(
+                select(ServiceConfig).where(ServiceConfig.name == self._service_name)
+            ).first()
+            return config.alert_threshold if config else 0
 
     async def run(self, client: httpx.AsyncClient | None = None) -> CheckResult:
         """Override the base run to inject metadata into the result."""
@@ -43,4 +74,4 @@ class HeartbeatProbe(BaseProbe):
         result = await super().run(client)
 
         # Return a new CheckResult with the metadata included
-        return result.model_copy(update={"extra_info": self.extra_info})
+        return result.model_copy(update={"extra_info": self._last_seen_metadata})

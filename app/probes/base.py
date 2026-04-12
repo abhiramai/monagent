@@ -33,7 +33,19 @@ class BaseProbe(ABC):
         The ODD wrapper. This ensures EVERY probe is timed and logged
         without the developer having to do it manually.
         """
-        logger.info(f"Running probe: {self.config.name} on {self.config.target_url}")
+        # Snapshot vital fields to avoid detached-instance issues later
+        service_name = getattr(self.config, "name", None) or "unknown"
+        target_url = getattr(self.config, "target_url", None)
+
+        if service_name == "unknown":
+            # Fallback to avoid NULL constraint failure
+            logger.error(
+                f"service_name is missing! config={self.config}, "
+                f"config.name={getattr(self.config, 'name', 'MISSING')}. "
+                f"Using placeholder 'unknown'."
+            )
+
+        logger.info(f"Running probe: {service_name} on {target_url}")
 
         start_time = time.perf_counter()
         error_msg: Optional[str] = None
@@ -47,7 +59,7 @@ class BaseProbe(ABC):
             else:
                 is_healthy, status_code = await self.perform_check(client)
         except Exception as e:
-            logger.exception(f"Unhandled exception in {self.config.name} probe")
+            logger.exception(f"Unhandled exception in {service_name} probe")
             is_healthy = False
             error_msg = f"Unhandled {type(e).__name__}: {e}"
 
@@ -55,9 +67,10 @@ class BaseProbe(ABC):
         latency = (end_time - start_time) * 1000
 
         return CheckResult(
-            service_name=self.config.name,
+            service_name=service_name,
             is_healthy=is_healthy,
             latency_ms=round(latency, 2),
             status_code=status_code,
             error_message=error_msg,
+            extra_info=getattr(self, "_last_seen_metadata", {}),
         )

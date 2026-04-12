@@ -1,19 +1,17 @@
-# 1. Standard Imports
 import asyncio
 import threading
+import os
+from datetime import datetime, timezone
 
-# 2. Third-Party Imports
 import typer
 import uvicorn
 from rich.console import Console
 from rich.table import Table
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 
-# 3. Local Project Imports
 from app.api.webhook import app as webhook_app
 from app.core.db import get_engine
-from sqlmodel import SQLModel
 from app.core.engine import ProbeEngine
 from app.models.check_result import ServiceConfig
 from app.probes.base import BaseProbe
@@ -21,17 +19,17 @@ from app.probes.heartbeat import HeartbeatProbe
 from app.probes.http import HttpProbe
 from app.probes.tcp import TcpProbe
 from app.tui.dashboard import DashboardApp
+from dotenv import load_dotenv
 
-# 4. Object Initialization
 app = typer.Typer(
     name="monagent",
     help="monagent: High-Contrast Lab Monitor",
     add_completion=False,
 )
 console = Console()
+load_dotenv()
 
-
-# --- CRUD Commands ---
+API_KEY = os.environ.get("MONAGENT_API_KEY", "MA-HEART-BEAT")
 
 
 @app.command()
@@ -74,7 +72,7 @@ def add(
             )
             raise typer.Exit(1)
     console.print(
-        f"[green]✓[/green] Added '[bold cyan]{name}[/bold cyan]' ({type}) monitoring {url}"
+        f"[green]+[/green] Added '[bold cyan]{name}[/bold cyan]' ({type}) monitoring {url}"
     )
 
 
@@ -101,7 +99,7 @@ def delete(name: str = typer.Option(..., help="Service name to delete")) -> None
 @app.command()
 def update(
     name: str = typer.Option(..., help="Service name to update"),
-    url: str = typer.Option(None, help="New target URL"),
+    url: str | None = typer.Option(None, help="New target URL"),
     interval: int | None = typer.Option(None, help="New interval seconds"),
     timeout: int | None = typer.Option(None, help="New timeout seconds"),
     type: str | None = typer.Option(None, help="New probe type: http, tcp, heartbeat"),
@@ -194,6 +192,78 @@ def list_services_alias() -> None:
 # --- Application Runner Commands ---
 
 
+async def _run_monagent(headless: bool) -> None:
+    SQLModel.metadata.create_all(get_engine())
+
+    probes = _get_probes()
+    engine = ProbeEngine(probes=probes)
+
+    # Setup API server
+    api_config = uvicorn.Config(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8001,
+        log_level="warning",
+        loop="asyncio",
+        lifespan="off",
+    )
+    api_server = uvicorn.Server(api_config)
+
+    # Create tasks
+    engine_task = asyncio.create_task(engine.start(), name="engine_task")
+    api_task = asyncio.create_task(api_server.serve(), name="api_task")
+
+    if headless:
+        console.print(
+            "[bold bright_cyan]>> Starting monagent HEADLESS (API + Engine)...[/]"
+        )
+        # Wait for engine and API to run indefinitely unless cancelled externally
+        await asyncio.gather(engine_task, api_task)
+    else:
+        console.print(
+            "[bold bright_cyan]📡 Starting monagent FULL (API + Engine + TUI)...[/]"
+        )
+        dashboard = DashboardApp()  # Dashboard fetches data dynamically
+        tui_task = asyncio.create_task(dashboard.run_async(), name="tui_task")
+
+        # Wait for the TUI to exit, then gracefully shut down other tasks
+        await tui_task
+
+        console.print(
+            "Shutdown triggered from TUI, gracefully stopping other services..."
+        )
+        # Signal API server to stop
+        api_server.should_exit = True
+        await engine.stop()  # Stop the engine gracefully
+
+        # Cancel other tasks and wait for them to finish
+        for task in [api_task, engine_task]:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        console.print("[bold bright_cyan]✅ monagent services stopped.[/]")
+
+
+@app.command()
+def run(
+    headless: bool = typer.Option(
+        False, "--headless", help="Run engine & API without the TUI."
+    ),
+) -> None:
+    """Launch the monagent engine, API, and/or TUI dashboard."""
+    asyncio.run(_run_monagent(headless))
+
+
+@app.command()
+def dash() -> None:
+    """Launch the TUI dashboard independently."""
+    SQLModel.metadata.create_all(get_engine())
+    asyncio.run(DashboardApp().run_async())
+
+
 def _get_probes() -> list[BaseProbe]:
     engine = get_engine()
     with Session(engine) as session:
@@ -212,55 +282,6 @@ def _get_probes() -> list[BaseProbe]:
         elif c.probe_type == "heartbeat":
             probes.append(HeartbeatProbe(config=c))
     return probes
-
-
-def _run_api_in_thread() -> None:
-    api_thread = threading.Thread(
-        target=uvicorn.run,
-        kwargs={
-            "app": webhook_app,
-            "host": "0.0.0.0",
-            "port": 8000,
-            "log_level": "warning",
-        },
-        daemon=True,
-    )
-    api_thread.start()
-
-
-@app.command()
-def run(
-    headless: bool = typer.Option(
-        False, "--headless", help="Run engine & API without the TUI."
-    ),
-) -> None:
-    """Launch the monagent engine, API, and/or TUI dashboard."""
-    SQLModel.metadata.create_all(get_engine())
-    probes = _get_probes()
-    engine = ProbeEngine(probes=probes)
-    if headless:
-        console.print(
-            "[bold bright_cyan]🚀 Starting monagent HEADLESS (API + Engine)...[/]"
-        )
-        _run_api_in_thread()
-        asyncio.run(engine.start())
-    else:
-        console.print(
-            "[bold bright_cyan]📡 Starting monagent FULL (API + Engine + TUI)...[/]"
-        )
-        _run_api_in_thread()
-        engine_thread = threading.Thread(
-            target=asyncio.run, args=(engine.start(),), daemon=True
-        )
-        engine_thread.start()
-        asyncio.run(DashboardApp().run_async())
-
-
-@app.command()
-def dash() -> None:
-    """Launch the TUI dashboard independently."""
-    SQLModel.metadata.create_all(get_engine())
-    asyncio.run(DashboardApp().run_async())
 
 
 if __name__ == "__main__":

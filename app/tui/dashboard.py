@@ -1,5 +1,5 @@
-from datetime import datetime
-from sqlmodel import select
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
@@ -7,7 +7,8 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Label, Static
 
 from app.core.db import get_session
-from app.core.time_utils import now_utc, to_aest, to_aware
+from app.core.time_utils import now_utc, to_aest, to_aware, now_aware
+from sqlmodel import select
 from app.models.check_result import CheckResult, ServiceConfig
 
 # ── Column Width Constants ──────────────────────────────────────────
@@ -52,6 +53,7 @@ class ServiceRow(Static):
         super().__init__()
         self.config = config
         self._result: CheckResult | None = None
+        self._alerted: bool = False
 
     def on_mount(self) -> None:
         if len(self.config.target_url) > COL_TARGET:
@@ -64,7 +66,6 @@ class ServiceRow(Static):
         """Poll the database for the latest config and check result."""
         with get_session() as session:
             self.config = session.get(ServiceConfig, self.config.id) or self.config
-
             latest_result = session.exec(
                 select(CheckResult)
                 .where(CheckResult.service_name == self.config.name)
@@ -74,7 +75,16 @@ class ServiceRow(Static):
             # Update config.last_seen from extra_info if present
             if latest_result and hasattr(latest_result, "extra_info"):
                 if "last_seen" in latest_result.extra_info:
-                    self.config.last_seen = latest_result.extra_info["last_seen"]
+                    last_seen_value = latest_result.extra_info["last_seen"]
+                    # Convert string to datetime if needed (for SQLite JSON storage)
+                    if isinstance(last_seen_value, str):
+                        try:
+                            from datetime import datetime
+
+                            last_seen_value = datetime.fromisoformat(last_seen_value)
+                        except ValueError:
+                            pass  # Keep original value if conversion fails
+                    self.config.last_seen = last_seen_value
         self._refresh()
 
     def _tick_scroll(self) -> None:
@@ -87,49 +97,47 @@ class ServiceRow(Static):
         if self.config.probe_type == "heartbeat":
             if self.config.last_seen:
                 is_stale = (
-                    now_utc() - to_aware(self.config.last_seen)
+                    now_aware() - to_aware(self.config.last_seen)
                 ).total_seconds() > self.config.interval_seconds
                 is_healthy = not is_stale
             else:
                 is_healthy = False
-        elif self._result:
-            is_healthy = self._result.is_healthy
         else:
-            is_healthy = None  # Pending
+            if self._result:
+                is_healthy = self._result.is_healthy
+            else:
+                is_healthy = None
 
         # 2. Build Display Strings
         probe_icon = {"http": "🌐", "tcp": "🔌", "heartbeat": "💓"}.get(
             self.config.probe_type, "❓"
         )
-        probe_display = f"[bold magenta]{probe_icon} {self.config.probe_type.upper():<{COL_PROBE - 3}}[/]"
+        probe_display = f"[dim]{probe_icon} {self.config.probe_type.upper():<{COL_PROBE - len(probe_icon) - 2}}[/]"
         service_display = f"[bold bright_cyan]{self.config.name:<{COL_SERVICE}}[/]"
 
-        if self.config.probe_type == "heartbeat":
-            resp, lat = "", ""
-            if self.config.last_seen:
-                delta = (now_utc() - to_aware(self.config.last_seen)).total_seconds()
-                url_display = f"Last seen: {delta:.0f}s ago"
-                resp = "THUMP" if is_healthy else "STALE"
-            else:
-                url_display = "Never seen"
-                resp = "SILENT"
-        elif self._result:
-            resp = str(self._result.status_code) if self._result.status_code else "ERR"
-            lat = f"{self._result.latency_ms:.1f}ms"
-            url_display = self.config.target_url
-        else:
-            # No result yet – show blanks (previously "..."/"Pending...")
-            resp = ""
-            lat = ""
-            url_display = self.config.target_url
-
+        # URL display (possibly scrolling)
+        url_display = self.config.target_url
         if len(url_display) > COL_TARGET:
             padded = url_display + "   |   "
             url_display = (padded + padded)[
                 self.scroll_offset : self.scroll_offset + COL_TARGET
             ]
-
         target_display = f"[bold white]{url_display:<{COL_TARGET}}[/]"
+
+        # Response and Latency
+        if self.config.probe_type == "heartbeat":
+            resp = "THUMP" if is_healthy else "STALE"
+            lat = ""
+        elif self.config.probe_type == "tcp":
+            resp = "[bold green]OPEN[/]" if is_healthy else "[bold red]CLOSED[/]"
+            lat = ""
+        else:  # http
+            resp = (
+                str(self._result.status_code)
+                if self._result and self._result.status_code is not None
+                else "ERR"
+            )
+            lat = f"{self._result.latency_ms:.1f}ms" if self._result else ""
 
         # 3. Determine Badge and Alert Icon
         if is_healthy is None:
@@ -155,6 +163,14 @@ class ServiceRow(Static):
             f"{alert_display}"
         )
         self.update(line)
+
+    # Utility method used by DashboardApp to apply result updates
+    def update_data(self, result: CheckResult, alerted: bool = False) -> None:
+        self._result = result
+        if result.extra_info and "last_seen" in result.extra_info:
+            self.config.last_seen = result.extra_info["last_seen"]
+        # Preserve alert state if needed (unused currently)
+        self._alerted = alerted
 
 
 class DashboardApp(App[None]):
@@ -192,10 +208,10 @@ ServiceRow {
 """
     BINDINGS = [("q", "quit", "Quit")]
 
-    # ... (rest of DashboardApp remains the same as previous refactor) ...
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._rows: dict[str, ServiceRow] = {}
+        self.hide_healthy: bool = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-bar"):
@@ -203,8 +219,8 @@ ServiceRow {
             yield Label("", id="sydney-clock")
         yield Static(HEADER_FMT, id="column-header")
         yield Static(SEPARATOR, id="column-separator")
-        yield VerticalScroll(id="row-container")
-        yield Footer()
+        with VerticalScroll(id="row-container"):
+            pass
 
     def on_mount(self) -> None:
         self.set_interval(1, self._update_clock)
@@ -221,3 +237,63 @@ ServiceRow {
     def _update_clock(self) -> None:
         now = to_aest(now_utc()).strftime("%H:%M:%S AEST")
         self.query_one("#sydney-clock", Label).update(now)
+
+    def post_result(self, result: CheckResult, alerted: bool = False) -> None:
+        self.call_next(self._update_row, result, alerted)
+
+    def _update_row(self, result: CheckResult, alerted: bool = False) -> None:
+        if result.service_name == "__sync__":
+            self._sync_rows()
+            return
+
+        if result.service_name in self._rows:
+            row = self._rows[result.service_name]
+            row.update_data(result, alerted)
+            if self.hide_healthy and result.is_healthy:
+                row.display = False
+            else:
+                row.display = True
+
+    def _sync_rows(self) -> None:
+        from app.core.db import get_engine
+        from app.core.engine import ProbeEngine
+        from app.probes.base import BaseProbe
+
+        # Since we don't have a reference to the running engine, we rebuild the probe list from DB
+        engine = get_engine()
+        with Session(engine) as session:
+            configs = session.exec(select(ServiceConfig)).all()
+        probes: list[BaseProbe] = []
+        for c in configs:
+            if c.probe_type == "http":
+                from app.probes.http import HttpProbe
+
+                probes.append(HttpProbe(config=c))
+            elif c.probe_type == "tcp":
+                from app.probes.tcp import TcpProbe
+
+                probes.append(TcpProbe(config=c))
+            elif c.probe_type == "heartbeat":
+                from app.probes.heartbeat import HeartbeatProbe
+
+                probes.append(HeartbeatProbe(config=c))
+
+        container = self.query_one("#row-container", VerticalScroll)
+        new_rows = []
+        for probe in probes:
+            if probe.config.name not in self._rows:
+                row = ServiceRow(config=probe.config)
+                self._rows[probe.config.name] = row
+                new_rows.append(row)
+        if new_rows:
+            container.mount_all(new_rows)
+
+    def action_toggle_healthy(self) -> None:
+        self.hide_healthy = not self.hide_healthy
+        for row in self._rows.values():
+            if self.hide_healthy:
+                row.display = (
+                    not row._result.is_healthy if row._result is not None else True
+                )
+            else:
+                row.display = True

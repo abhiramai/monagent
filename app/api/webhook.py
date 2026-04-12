@@ -1,4 +1,8 @@
 import os
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+from loguru import logger
+
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -7,7 +11,10 @@ from sqlmodel import Session, select
 
 from app.core.db import get_session
 from app.core.time_utils import now_utc
+
 from app.models.check_result import ServiceConfig
+
+load_dotenv()
 
 # A simple, hardcoded API key for this internal service
 API_KEY = os.environ.get("MONAGENT_API_KEY", "MA-HEART-BEAT")
@@ -26,6 +33,8 @@ async def heartbeat(request: Request) -> JSONResponse:
     service_name = payload.get("service_name")
     if not service_name:
         return JSONResponse({"error": "service_name is required"}, status_code=400)
+
+    logger.info(f"💓 Heartbeat received for: {service_name}")
 
     with get_session() as session:
         statement = select(ServiceConfig).where(ServiceConfig.name == service_name)

@@ -2,6 +2,8 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -270,8 +272,33 @@ def run(
     headless: bool = typer.Option(
         False, "--headless", help="Run engine & API without the TUI."
     ),
+    daemon: bool = typer.Option(False, "--daemon", help="Run as background daemon."),
 ) -> None:
     """Launch the monagent engine, API, and/or TUI dashboard."""
+    if daemon:
+        import subprocess
+
+        if sys.platform == "win32":
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "app.cli.main", "run", "--headless"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP,
+                start_new_session=True,
+            )
+        else:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "app.cli.main", "run", "--headless"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        console.print(
+            f"[bold green]NOC Monitor started in background (PID: {proc.pid})[/bold green]"
+        )
+        return
+
     asyncio.run(_run_monagent(headless))
 
 

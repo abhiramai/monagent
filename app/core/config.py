@@ -9,3 +9,5 @@ LOG_DIR = APP_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 PID_FILE = APP_DIR / "monagent.pid"
+
+MONAGENT_PORT = int(os.environ.get("MONAGENT_PORT", 1984))

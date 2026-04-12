@@ -6,6 +6,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Footer, Label, Static
 
+from app.core.config import MONAGENT_PORT
 from app.core.db import get_session
 from app.core.time_utils import now_utc, to_aest, to_aware, now_aware
 from sqlmodel import select
@@ -251,7 +252,7 @@ ServiceRow {
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-bar"):
-            yield Label("Sydney NOC: Monitored Clients v0.1", id="app-title")
+            yield Label(f"Sydney NOC v0.1 | API Port: {MONAGENT_PORT}", id="app-title")
             yield Label("", id="sydney-clock")
         yield Static(HEADER_FMT, id="column-header")
         yield Static(SEPARATOR, id="column-separator")

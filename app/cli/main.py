@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.core.config import PID_FILE
+from app.core.config import MONAGENT_PORT, PID_FILE
 
 import typer
 import uvicorn
@@ -223,7 +223,7 @@ async def _run_monagent(headless: bool) -> None:
     api_config = uvicorn.Config(
         "app.main:app",
         host="0.0.0.0",
-        port=8001,
+        port=MONAGENT_PORT,
         log_level="warning",
         loop="asyncio",
         lifespan="off",
@@ -274,8 +274,11 @@ def run(
         False, "--headless", help="Run engine & API without the TUI."
     ),
     daemon: bool = typer.Option(False, "--daemon", help="Run as background daemon."),
+    port: int = typer.Option(1984, "--port", help="API port."),
 ) -> None:
     """Launch the monagent engine, API, and/or TUI dashboard."""
+    global MONAGENT_PORT
+    MONAGENT_PORT = port
     if daemon:
         import subprocess
 

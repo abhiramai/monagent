@@ -116,13 +116,20 @@ class ServiceRow(Static):
         service_display = f"[bold bright_cyan]{self.config.name:<{COL_SERVICE}}[/]"
 
         # URL display (possibly scrolling)
-        url_display = self.config.target_url
-        if len(url_display) > COL_TARGET:
-            padded = url_display + "   |   "
-            url_display = (padded + padded)[
-                self.scroll_offset : self.scroll_offset + COL_TARGET
-            ]
-        target_display = f"[bold white]{url_display:<{COL_TARGET}}[/]"
+        if self.config.probe_type == "heartbeat" and self._result:
+            # Show source IP for heartbeat services
+            source_ip = "N/A"
+            if self._result.extra_info and "source_ip" in self._result.extra_info:
+                source_ip = str(self._result.extra_info["source_ip"])
+            target_display = f"[bold cyan]{source_ip:<{COL_TARGET}}[/]"
+        else:
+            url_display = self.config.target_url
+            if len(url_display) > COL_TARGET:
+                padded = url_display + "   |   "
+                url_display = (padded + padded)[
+                    self.scroll_offset : self.scroll_offset + COL_TARGET
+                ]
+            target_display = f"[bold white]{url_display:<{COL_TARGET}}[/]"
 
         # Response and Latency
         if self.config.probe_type == "heartbeat":

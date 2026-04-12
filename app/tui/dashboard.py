@@ -133,7 +133,28 @@ class ServiceRow(Static):
 
         # Response and Latency
         if self.config.probe_type == "heartbeat":
-            resp = "THUMP" if is_healthy else "STALE"
+            if is_healthy:
+                # Show TTL (time remaining) for long intervals
+                if self.config.interval_seconds >= 3600 and self.config.last_seen:
+                    seconds_remaining = (
+                        self.config.interval_seconds
+                        - (
+                            now_aware() - to_aware(self.config.last_seen)
+                        ).total_seconds()
+                    )
+                    if seconds_remaining > 0:
+                        hours_remaining = int(seconds_remaining // 3600)
+                        minutes_remaining = int((seconds_remaining % 3600) // 60)
+                        if hours_remaining > 0:
+                            resp = f"TTL: {hours_remaining}h"
+                        else:
+                            resp = f"TTL: {minutes_remaining}m"
+                    else:
+                        resp = "STALE"
+                else:
+                    resp = "THUMP"
+            else:
+                resp = "STALE"
             lat = ""
         elif self.config.probe_type == "tcp":
             resp = "[bold green]OPEN[/]" if is_healthy else "[bold red]CLOSED[/]"

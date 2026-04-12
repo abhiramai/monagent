@@ -1,7 +1,8 @@
 import asyncio
 import json
-import threading
 import os
+import signal
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -207,6 +208,11 @@ def list_services_alias() -> None:
 async def _run_monagent(headless: bool) -> None:
     SQLModel.metadata.create_all(get_engine())
 
+    # Write PID file
+    PID_FILE = Path("monagent.pid")
+    PID_FILE.write_text(str(os.getpid()))
+    console.print(f"[dim]PID {os.getpid()} written to {PID_FILE}[/dim]")
+
     probes = _get_probes()
     engine = ProbeEngine(probes=probes)
 
@@ -284,6 +290,28 @@ def reset_database() -> None:
     console.print("[bold yellow]Resetting database...[/]")
     reset_db()
     console.print("[bold green]Database reset complete![/]")
+
+
+PID_FILE = Path("monagent.pid")
+
+
+@app.command("stop")
+def stop() -> None:
+    """Stop a running monagent instance."""
+    if not PID_FILE.exists():
+        console.print("[yellow]Monitor is not running.[/yellow]")
+        return
+
+    pid = int(PID_FILE.read_text().strip())
+    try:
+        os.kill(pid, signal.SIGTERM)
+        console.print(f"[bold green]Terminated PID {pid}[/bold green]")
+        PID_FILE.unlink()
+    except ProcessLookupError:
+        console.print("[yellow]Process not found, cleaning up.[/yellow]")
+        PID_FILE.unlink()
+    except PermissionError:
+        console.print("[bold red]Permission denied to terminate process.[/bold red]")
 
 
 @app.command("sync")

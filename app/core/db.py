@@ -44,6 +44,21 @@ def init_db() -> None:
     logger.info(f"Database initialized at {DB_PATH}")
 
 
+def reset_db() -> None:
+    """Delete the database file and reinitialize. Use with caution - all data will be lost."""
+    global _engine
+    if DB_PATH.exists():
+        logger.warning(f"Deleting existing database at {DB_PATH}")
+        DB_PATH.unlink()
+    # Recreate engine and tables
+    from sqlalchemy import create_engine
+
+    global _engine
+    _engine = create_engine(DB_URL, echo=False)
+    init_db()
+    logger.info("Database reset complete")
+
+
 def _migrate_columns() -> None:
     """
     Check for missing columns on the service_config table
@@ -61,6 +76,10 @@ def _migrate_columns() -> None:
         (
             "last_seen",
             "ALTER TABLE service_config ADD COLUMN last_seen DATETIME",
+        ),
+        (
+            "client_ip",
+            "ALTER TABLE service_config ADD COLUMN client_ip VARCHAR",
         ),
     ]
 

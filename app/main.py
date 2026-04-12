@@ -37,8 +37,9 @@ async def receive_heartbeat(request: Request, payload: HeartbeatPayload):
                 logger.warning(f"⚠️ Service '{srv_name}' not found.")
                 raise HTTPException(status_code=404, detail="Service not found")
 
-            # Update last_seen (naive UTC for SQLite)
+            # Update last_seen and client_ip (naive UTC for SQLite)
             config.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
+            config.client_ip = client_ip
             session.add(config)
             session.commit()
 

@@ -167,16 +167,23 @@ def list_services() -> None:
     table.add_column("Name", style="bold cyan")
     table.add_column("Type")
     table.add_column("Target")
+    table.add_column("Client")
     table.add_column("Interval")
     table.add_column("Alerts")
     for c in configs:
         alert_display = (
             str(c.alert_threshold) if c.alert_threshold > 0 else "[dim]disabled[/]"
         )
+        # Show client IP for heartbeat probes, target URL for others
+        if c.probe_type == "heartbeat":
+            target_display = c.client_ip or "[dim]N/A[/]"
+        else:
+            target_display = c.target_url
         table.add_row(
             c.name,
             c.probe_type.upper(),
-            c.target_url,
+            target_display,
+            str(c.client_ip or ""),
             f"{c.interval_seconds}s",
             alert_display,
         )

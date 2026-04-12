@@ -7,9 +7,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
-# Keep my HEAD version of DB_PATH definition
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "monagent.db"
-DB_PATH = Path(os.path.abspath(DB_PATH))
+from app.core.config import DB_PATH
 
 DB_URL = f"sqlite:///{DB_PATH}"
 

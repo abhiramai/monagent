@@ -8,6 +8,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.core.config import PID_FILE
+
 import typer
 import uvicorn
 from rich.console import Console
@@ -211,7 +213,6 @@ async def _run_monagent(headless: bool) -> None:
     SQLModel.metadata.create_all(get_engine())
 
     # Write PID file
-    PID_FILE = Path("monagent.pid")
     PID_FILE.write_text(str(os.getpid()))
     console.print(f"[dim]PID {os.getpid()} written to {PID_FILE}[/dim]")
 
@@ -317,9 +318,6 @@ def reset_database() -> None:
     console.print("[bold yellow]Resetting database...[/]")
     reset_db()
     console.print("[bold green]Database reset complete![/]")
-
-
-PID_FILE = Path("monagent.pid")
 
 
 @app.command("stop")

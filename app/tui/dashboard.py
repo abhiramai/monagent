@@ -17,7 +17,7 @@ COL_SERVICE = 20
 COL_TARGET = 35
 COL_RESP = 10
 COL_LATENCY = 12
-COL_STATUS = 12
+COL_STATUS = 15
 COL_ALERT = 3
 
 TOTAL_WIDTH = (
@@ -116,11 +116,16 @@ class ServiceRow(Static):
         service_display = f"[bold bright_cyan]{self.config.name:<{COL_SERVICE}}[/]"
 
         # URL display (possibly scrolling)
-        if self.config.probe_type == "heartbeat" and self._result:
-            # Show source IP for heartbeat services
+        if self.config.probe_type == "heartbeat":
             source_ip = "N/A"
-            if self._result.extra_info and "source_ip" in self._result.extra_info:
+            if (
+                self._result
+                and self._result.extra_info
+                and "source_ip" in self._result.extra_info
+            ):
                 source_ip = str(self._result.extra_info["source_ip"])
+            elif self.config.client_ip:
+                source_ip = str(self.config.client_ip)
             target_display = f"[bold cyan]{source_ip:<{COL_TARGET}}[/]"
         else:
             url_display = self.config.target_url
@@ -134,7 +139,6 @@ class ServiceRow(Static):
         # Response and Latency
         if self.config.probe_type == "heartbeat":
             if is_healthy:
-                # Show TTL (time remaining) for long intervals
                 if self.config.interval_seconds >= 3600 and self.config.last_seen:
                     seconds_remaining = (
                         self.config.interval_seconds
@@ -146,38 +150,47 @@ class ServiceRow(Static):
                         hours_remaining = int(seconds_remaining // 3600)
                         minutes_remaining = int((seconds_remaining % 3600) // 60)
                         if hours_remaining > 0:
-                            resp = f"TTL: {hours_remaining}h"
+                            resp = f"TTL{hours_remaining}h"
                         else:
-                            resp = f"TTL: {minutes_remaining}m"
+                            resp = f"TTL{minutes_remaining}m"
                     else:
-                        resp = "STALE"
+                        resp = "STALE    "
                 else:
-                    resp = "THUMP"
+                    resp = "THUMP    "
             else:
-                resp = "STALE"
-            lat = ""
+                resp = "STALE    "
+            lat = " " * COL_LATENCY
         elif self.config.probe_type == "tcp":
-            resp = "[bold green]OPEN[/]" if is_healthy else "[bold red]CLOSED[/]"
-            lat = ""
+            resp = "OPEN" if is_healthy else "CLOSED"
+            lat = " " * COL_LATENCY
         else:  # http
             resp = (
                 str(self._result.status_code)
                 if self._result and self._result.status_code is not None
                 else "ERR"
             )
-            lat = f"{self._result.latency_ms:.1f}ms" if self._result else ""
+            lat = (
+                f"{self._result.latency_ms:.1f}ms"
+                if self._result
+                else " " * COL_LATENCY
+            )
 
         # 3. Determine Badge and Alert Icon
+        badge_status = (
+            "PENDING"
+            if is_healthy is None
+            else ("HEALTHY" if is_healthy else "UNHEALTHY")
+        )
         if is_healthy is None:
-            badge = "[black on yellow] PENDING [/]"
+            badge = f"[black on #cccc00] {badge_status:>9} [/]"
             alert_display = ""
         elif is_healthy:
-            badge = "[white on #00aa44] HEALTHY [/]"
+            badge = f"[black on #00aa44] {badge_status:>9} [/]"
             alert_display = (
                 "[bold green]🔔[/]" if self.config.alert_threshold > 0 else ""
             )
         else:
-            badge = "[white on #cc2222] UNHEALTHY [/]"
+            badge = f"[white on #cc2222] {badge_status:>9} [/]"
             alert_display = "[bold red]🚨[/]" if self.config.alert_threshold > 0 else ""
 
         # 4. Update Renderable
@@ -243,7 +256,7 @@ ServiceRow {
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-bar"):
-            yield Label("monagent v1.0.0-final", id="app-title")
+            yield Label("monagent 0.1", id="app-title")
             yield Label("", id="sydney-clock")
         yield Static(HEADER_FMT, id="column-header")
         yield Static(SEPARATOR, id="column-separator")
